@@ -575,8 +575,16 @@ Cashing out settles the night into the Record Book and starts a fresh session â€
 otherwise dealing on from the same stacks would let a second cash-out record the
 same money twice.
 
-Coach mode is never saved. It is explicitly not a night and must not write over
-one.
+Coach mode is saved too, under its own key and stamped with its own mode.
+Losing a coach session to a reclaimed tab is as annoying as losing a real one,
+and it is still not a night: it never reaches the Record Book, and a restore
+checks the mode on the snapshot rather than trusting which key it was filed
+under, so the two cannot be crossed even if the storage were tampered with. A
+snapshot written before coach mode was saved carries no mode at all; those were
+all real tables, which is what an absent one is taken to mean.
+
+Because it now persists, coach mode has a **Fresh table** button â€” otherwise
+there would be no way back to a full stack.
 
 ## Misclicks
 

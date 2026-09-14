@@ -128,6 +128,49 @@ describe('carrying a session across a restart', () => {
   })
 })
 
+describe('keeping coach mode apart from a real night', () => {
+  it('stamps the snapshot with which table it was', () => {
+    const table = playedTable(3)
+    expect(table.snapshot().mode).toBe('table')
+    expect(table.snapshot('coach').mode).toBe('coach')
+  })
+
+  it('will not restore a coach session into the table that owes money', () => {
+    const coach = playedTable(4)
+    const snapshot = JSON.parse(JSON.stringify(coach.snapshot('coach')))
+
+    const real = emptyTable()
+    expect(real.restore(snapshot, 'table')).toBe(false)
+    // Untouched: still a fresh buy-in, not the coach session's stacks.
+    expect(real.seats.every((s) => s.stack === BUY_IN_CHIPS)).toBe(true)
+  })
+
+  it('will not restore a real night into coach mode either', () => {
+    const real = playedTable(4)
+    const snapshot = JSON.parse(JSON.stringify(real.snapshot('table')))
+    expect(emptyTable().restore(snapshot, 'coach')).toBe(false)
+  })
+
+  it('restores each into its own mode', () => {
+    const played = playedTable(5)
+    for (const mode of ['table', 'coach'] as const) {
+      const snapshot = JSON.parse(JSON.stringify(played.snapshot(mode)))
+      const restored = emptyTable()
+      expect(restored.restore(snapshot, mode), mode).toBe(true)
+      expect(restored.seats.map((s) => s.stack)).toEqual(played.seats.map((s) => s.stack))
+    }
+  })
+
+  it('treats a snapshot from before coach mode was saved as a real table', () => {
+    const snapshot = JSON.parse(JSON.stringify(playedTable(3).snapshot()))
+    delete snapshot.mode
+
+    expect(emptyTable().restore(snapshot, 'table')).toBe(true)
+    // And still not something coach mode will pick up.
+    expect(emptyTable().restore(snapshot, 'coach')).toBe(false)
+  })
+})
+
 describe('refusing a snapshot that cannot be trusted', () => {
   const good = () => JSON.parse(JSON.stringify(playedTable(3).snapshot()))
 

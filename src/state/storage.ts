@@ -7,6 +7,7 @@
 
 import { defaultRoster, type Persona } from '../engine/persona'
 import type { TableSnapshot } from '../engine/table'
+import type { PlayMode } from '../engine/playerStats'
 import type { ProviderId } from '../engine/providers/types'
 import { emptyTotals, type HandRecord, type PlayerTotals } from '../engine/playerStats'
 import type { GameNight } from './records'
@@ -19,6 +20,7 @@ const PLAYER_KEY = 'bnotw.player.v1'
 const COACH_KEY_KEY = 'bnotw.coachkey.v1'
 const COACH_CREDS_KEY = 'bnotw.coachcreds.v1'
 const TABLE_KEY = 'bnotw.table.v1'
+const COACH_TABLE_KEY = 'bnotw.table.coach.v1'
 const DRILL_KEY = 'bnotw.drill.v1'
 const COACH_KEY = 'bnotw.coach.v1'
 
@@ -315,10 +317,14 @@ export function saveCoachCreds(creds: CoachCreds): void {
  * that a browser reclaiming the tab — which iOS does routinely when you switch
  * apps — does not quietly reset your stack and buy-in count.
  */
-export function loadTableSnapshot(): TableSnapshot | null {
+function keyFor(mode: PlayMode): string {
+  return mode === 'coach' ? COACH_TABLE_KEY : TABLE_KEY
+}
+
+export function loadTableSnapshot(mode: PlayMode = 'table'): TableSnapshot | null {
   if (typeof localStorage === 'undefined') return null
   try {
-    const raw = localStorage.getItem(TABLE_KEY)
+    const raw = localStorage.getItem(keyFor(mode))
     if (!raw) return null
     const data = JSON.parse(raw) as TableSnapshot
     // Anything more than a shape check belongs to Table.restore, which has to
@@ -330,11 +336,11 @@ export function loadTableSnapshot(): TableSnapshot | null {
 }
 
 /** Pass null to end the session — after a cash-out, or on a fresh deal. */
-export function saveTableSnapshot(snapshot: TableSnapshot | null): void {
+export function saveTableSnapshot(mode: PlayMode, snapshot: TableSnapshot | null): void {
   if (typeof localStorage === 'undefined') return
   try {
-    if (snapshot) localStorage.setItem(TABLE_KEY, JSON.stringify(snapshot))
-    else localStorage.removeItem(TABLE_KEY)
+    if (snapshot) localStorage.setItem(keyFor(mode), JSON.stringify(snapshot))
+    else localStorage.removeItem(keyFor(mode))
   } catch {
     // Out of quota, or private browsing. The session simply will not survive
     // being closed, which is exactly where this started — and never a reason

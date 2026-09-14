@@ -15,6 +15,7 @@ import {
   livePlayers, resolveShowdown, settleDexter, straddleCandidates,
 } from './hand'
 import { defaultRoster, personaFromArchetype, type Persona } from './persona'
+import type { PlayMode } from './playerStats'
 import type { Action, HandState, Seat, Street, Variant } from './types'
 
 export type BombPotTrigger = 'time' | 'hands' | 'off'
@@ -74,6 +75,12 @@ export interface DexterRecord {
 export interface TableSnapshot {
   version: 1
   savedAt: number
+  /**
+   * Which table this was. Coach mode keeps its own session and must never be
+   * mistaken for a night that owes anybody money, so the record says what it
+   * is rather than relying on which key it happened to be filed under.
+   */
+  mode: PlayMode
   seats: Seat[]
   handNumber: number
   handsPlayed: number
@@ -441,10 +448,11 @@ export class Table {
   // -- surviving the app being closed ---------------------------------------
 
   /** Freeze what outlives a hand. Safe to call at any time; the hand is not kept. */
-  snapshot(): TableSnapshot {
+  snapshot(mode: PlayMode = 'table'): TableSnapshot {
     return {
       version: 1,
       savedAt: Date.now(),
+      mode,
       // Structured-cloned rather than referenced: the caller is about to
       // serialise this, and the live seats keep mutating underneath it.
       seats: this.seats.map((seat) => ({ ...seat, persona: { ...seat.persona } })),
@@ -465,8 +473,11 @@ export class Table {
    * which case the table is untouched and play starts fresh — a corrupt
    * restore that half-applies would be worse than no restore at all.
    */
-  restore(snapshot: TableSnapshot | null | undefined): boolean {
+  restore(snapshot: TableSnapshot | null | undefined, expect: PlayMode = 'table'): boolean {
     if (!snapshot || snapshot.version !== 1) return false
+    // Snapshots written before coach mode was saved carry no mode; they were
+    // all real tables, so that is what an absent one means.
+    if ((snapshot.mode ?? 'table') !== expect) return false
     if (!Array.isArray(snapshot.seats) || snapshot.seats.length < 2) return false
 
     const seats = snapshot.seats.map((seat, i) => ({

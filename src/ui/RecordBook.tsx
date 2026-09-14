@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import { YourData } from './YourData'
+import { shareBackup } from '../state/backup'
 import { money, signedMoney } from '../engine/bnotw'
 import {
   blankNight, blankPlayer, careerStandings, settleNight, sortNights,
@@ -7,6 +8,7 @@ import {
 } from '../state/records'
 import { careerCsv, downloadText, formatDate, mailtoLink, recapEmail, recordBookCsv } from '../state/export'
 import { mergeNights, parseImport, type RecordBook as Book } from '../state/storage'
+import { backupIsOverdue, lastBackupAt } from '../state/backup'
 import { MoneyInput } from './MoneyInput'
 
 export function RecordBookView({
@@ -21,6 +23,7 @@ export function RecordBookView({
   const career = useMemo(() => careerStandings(book.nights), [book.nights])
   const fileRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
+  const overdue = useMemo(() => backupIsOverdue(book.nights), [book.nights])
 
   const updateNight = (night: GameNight) => {
     setBook({
@@ -92,7 +95,10 @@ export function RecordBookView({
           <button
             className="btn small"
             disabled={!book.nights.length}
-            onClick={() => downloadText('bnotw-record-book.json', JSON.stringify(book, null, 2), 'application/json')}
+            onClick={() => void shareBackup(
+              'bnotw-record-book.json',
+              JSON.stringify(book, null, 2),
+            )}
           >
             Backup JSON
           </button>
@@ -110,6 +116,15 @@ export function RecordBookView({
           />
         </div>
         {error && <div className="warn bad">{error}</div>}
+        {overdue && (
+          <div className="warn">
+            {lastBackupAt()
+              ? 'A few nights have gone in since you last kept a copy.'
+              : 'You have never kept a copy of this.'}
+            {' '}Backup JSON hands the file to Files, iCloud Drive or wherever you
+            keep things — it is the only part of this that survives losing the device.
+          </div>
+        )}
 
         <details className="yourdata-toggle">
           <summary>Where does my history live? (worth reading once)</summary>

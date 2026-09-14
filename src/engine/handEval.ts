@@ -181,7 +181,22 @@ export function describeHand(value: HandValue): string {
   }
 }
 
-/** Compact label for the seat badge, e.g. "A♠ K♠". */
-export function kickerLabels(value: HandValue): string {
-  return value.kickers.map((r) => rankLabel(r as Rank)).join(' ')
+/**
+ * A very short label that fits on a seat plate, e.g. "Trip Qs", "Kings full",
+ * "Pair of 2s". `describeHand` is the long form for the hand log.
+ */
+export function shortHand(value: HandValue): string {
+  const r = (i: number) => rankLabel(value.kickers[i] as Rank)
+  switch (value.category) {
+    case HandCategory.StraightFlush:
+      return value.kickers[0] === 14 ? 'Royal Flush' : `Str Flush ${r(0)}`
+    case HandCategory.Quads: return `Quad ${r(0)}s`
+    case HandCategory.FullHouse: return `${r(0)}s full`
+    case HandCategory.Flush: return `Flush ${r(0)}`
+    case HandCategory.Straight: return `Straight ${r(0)}`
+    case HandCategory.Trips: return `Trip ${r(0)}s`
+    case HandCategory.TwoPair: return `${r(0)}s & ${r(1)}s`
+    case HandCategory.Pair: return `Pair ${r(0)}s`
+    default: return `${r(0)} high`
+  }
 }

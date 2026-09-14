@@ -139,33 +139,42 @@ export function decideAction({ state, seats, seat, rng, trials = 220 }: BotConte
   const p = state.players[seat]
   const style = STYLES[seats[seat].style] ?? STYLES.regular
   const pot = potTotal(state)
-  const opponents = Math.max(1, livePlayers(state).length - 1)
 
+  if (state.board.length === 0) return preflopDecision(state, legal, style, pot, p.hole, rng)
+
+  const opponents = Math.max(1, livePlayers(state).length - 1)
+  const stack = seats[seat].stack
   const toCall = legal.callAmount
   const potOdds = toCall > 0 ? toCall / (pot + toCall) : 0
+  const raw = equity(p.hole, state.board, opponents, trials, rng)
 
-  const strength = state.board.length === 0
-    ? preflopStrength(p.hole, style)
-    : equity(p.hole, state.board, opponents, trials, rng)
+  // The simulation deals opponents *random* hands, but a player who is still
+  // putting money in has better than a random hand. Discount the estimate
+  // before pricing a call, or the bots call down with anything.
+  const strength = toCall > 0 ? raw * RANGE_DISCOUNT : raw
 
   // --- nothing to call: check, or take a stab at it ------------------------
   if (legal.canCheck) {
+    const valueBar = 0.55 + 0.05 * Math.min(opponents, 4)
     const wantsToBet =
-      (strength > 0.62 && rng() < style.aggression) ||
-      (strength < 0.35 && rng() < style.bluff)
+      (strength > valueBar && rng() < style.aggression) ||
+      (strength < 0.3 && rng() < style.bluff)
     if (!wantsToBet || !legal.canBet) return { kind: 'check' }
 
-    const fraction = strength > 0.8 ? 0.75 : strength > 0.6 ? 0.55 : 0.4
+    const fraction = strength > 0.8 ? 0.7 : strength > 0.6 ? 0.55 : 0.4
     const base = Math.max(BIG_BLIND, pot * fraction)
-    return { kind: 'bet', amount: snapToNamedBet(clampRaise(base, legal), legal, rng) }
+    return { kind: 'bet', amount: sizeBet(base, strength, stack, legal, rng) }
   }
 
   // --- facing a bet --------------------------------------------------------
-  const required = potOdds * style.callTightness
+  // Putting a big share of the stack at risk needs a hand, not just pot odds.
+  const stackRisk = toCall / Math.max(1, toCall + stack)
+  const priced = strength >= potOdds * style.callTightness
+  const worthTheStack = stackRisk < 0.4 || strength > 0.62 + stackRisk * 0.2
 
-  if (strength < required) {
-    // Occasionally bluff-raise instead of folding, but never with the whole stack.
-    if (legal.canRaise && rng() < style.bluff * 0.4 && toCall < pot) {
+  if (!priced || !worthTheStack) {
+    // Occasionally bluff-raise instead of folding, but never for the stack.
+    if (legal.canRaise && rng() < style.bluff * 0.4 && toCall < pot * 0.7) {
       const amount = clampRaise(state.currentBet + Math.max(BIG_BLIND, pot * 0.6), legal)
       if (amount < legal.maxRaiseTo) {
         return { kind: 'raise', amount: snapToNamedBet(amount, legal, rng) }
@@ -174,23 +183,81 @@ export function decideAction({ state, seats, seat, rng, trials = 220 }: BotConte
     return { kind: 'fold' }
   }
 
-  const raiseWorthy = strength > 0.7 + (1 - style.aggression) * 0.1
-  if (raiseWorthy && legal.canRaise && rng() < style.aggression) {
-    const fraction = strength > 0.88 ? 1.0 : 0.65
-    const amount = clampRaise(state.currentBet + Math.max(BIG_BLIND, pot * fraction), legal)
-    return { kind: 'raise', amount: snapToNamedBet(amount, legal, rng) }
+  // Re-raising a big bet takes a genuinely big hand, not merely a good one;
+  // without this the table just shoves every pot.
+  const facingBigBet = toCall > pot * 0.6
+  const raiseBar = facingBigBet ? 0.82 : 0.66 + (1 - style.aggression) * 0.1
+  if (strength > raiseBar && legal.canRaise && rng() < style.aggression) {
+    const fraction = strength > 0.88 ? 1.0 : 0.6
+    const amount = state.currentBet + Math.max(BIG_BLIND, pot * fraction)
+    return { kind: 'raise', amount: sizeBet(amount, strength, stack, legal, rng) }
   }
 
   return { kind: 'call' }
 }
 
-/** Map a Chen score onto the same 0..1 scale the equity estimate uses. */
-function preflopStrength(hole: Card[], style: StyleProfile): number {
+/**
+ * How much a Monte Carlo estimate against random hands is shaded down once
+ * somebody has bet into us. Tuned so the table plays loose-but-sane rather
+ * than getting it all in every hand.
+ */
+const RANGE_DISCOUNT = 0.72
+
+/** Round a bet to chips, and keep a deep stack off the table without a hand. */
+function sizeBet(
+  target: number,
+  strength: number,
+  stack: number,
+  legal: LegalActions,
+  rng: Rng,
+): number {
+  const share = strength > 0.9 ? 1 : strength > 0.78 ? 0.5 : 0.3
+  const cap = legal.maxRaiseTo - stack * (1 - share)
+  return snapToNamedBet(clampRaise(Math.min(target, cap), legal), legal, rng)
+}
+
+/**
+ * Pre-flop play is priced in big blinds rather than pot odds: the Chen score a
+ * bot needs climbs with the size of the bet in front of it, so a table full of
+ * bots does not get all the money in with a middling hand every hand.
+ */
+function preflopDecision(
+  state: HandState,
+  legal: LegalActions,
+  style: StyleProfile,
+  pot: number,
+  hole: Card[],
+  rng: Rng,
+): Action {
   const chen = chenScore(hole)
-  // -1.5..20 becomes roughly 0.25..0.95, shifted by how wide the bot plays.
-  const normalised = Math.max(0, Math.min(1, (chen + 2) / 22))
-  const looseness = (7 - style.openThreshold) * 0.012
-  return Math.max(0.05, Math.min(0.97, 0.25 + normalised * 0.7 + looseness))
+  // A straddle raises the price of the hand for everybody, so measure the bet
+  // against the largest forced blind rather than always against the big blind.
+  const forced = Math.max(BIG_BLIND, ...state.straddles.map((s) => s.amount))
+  const units = Math.max(1, state.currentBet / forced)
+  const need = style.openThreshold + Math.log2(units) * 3
+
+  if (legal.canCheck) {
+    // In the blind with nothing to call: raise with a real hand, else see a flop.
+    const wantsToRaise = chen >= need + 4 && rng() < style.aggression
+    if (!wantsToRaise || !legal.canBet && !legal.canRaise) return { kind: 'check' }
+    const amount = clampRaise(state.currentBet + Math.max(BIG_BLIND, pot * 0.75), legal)
+    return { kind: legal.canBet ? 'bet' : 'raise', amount: snapToNamedBet(amount, legal, rng) }
+  }
+
+  if (chen < need) {
+    if (legal.canRaise && rng() < style.bluff * 0.25 && units < 2) {
+      const amount = clampRaise(state.currentBet * 3, legal)
+      if (amount < legal.maxRaiseTo) return { kind: 'raise', amount }
+    }
+    return { kind: 'fold' }
+  }
+
+  if (chen >= need + 5 && legal.canRaise && rng() < style.aggression) {
+    const amount = clampRaise(state.currentBet * 3 + pot * 0.25, legal)
+    return { kind: 'raise', amount: snapToNamedBet(amount, legal, rng) }
+  }
+
+  return { kind: 'call' }
 }
 
 /** Crazy Pineapple: pitch whichever card leaves the strongest two. */

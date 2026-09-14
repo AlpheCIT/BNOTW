@@ -132,6 +132,62 @@ describe('keeping the history', () => {
   })
 })
 
+describe('notes on a hand', () => {
+  it('attaches a note and reads it back', async () => {
+    const db = await freshDb()
+    await db.appendHand(hand(1700), totalsWith(1))
+
+    expect(await db.setNote(1700, '  had him on a draw  ')).toBe(true)
+    expect((await db.readRecentHands())[0].note).toBe('had him on a draw')
+  })
+
+  it('replaces a note without disturbing the hand', async () => {
+    const db = await freshDb()
+    await db.appendHand(hand(1700, { net: 250 }), totalsWith(1))
+    await db.setNote(1700, 'first thought')
+    await db.setNote(1700, 'second thought')
+
+    const stored = (await db.readRecentHands())[0]
+    expect(stored.note).toBe('second thought')
+    expect(stored.net).toBe(250)
+  })
+
+  it('clears a note when given nothing', async () => {
+    const db = await freshDb()
+    await db.appendHand(hand(1700), totalsWith(1))
+    await db.setNote(1700, 'never mind')
+    await db.setNote(1700, '   ')
+
+    expect((await db.readRecentHands())[0].note).toBeUndefined()
+  })
+
+  it('notes the right hand out of many', async () => {
+    const db = await freshDb()
+    for (const at of [10, 20, 30]) await db.appendHand(hand(at), totalsWith(at))
+    await db.setNote(20, 'this one')
+
+    const all = await db.readAllHands()
+    expect(all.find((h) => h.at === 20)?.note).toBe('this one')
+    expect(all.filter((h) => h.note)).toHaveLength(1)
+  })
+
+  it('says so rather than throwing when the hand is not stored', async () => {
+    const db = await freshDb()
+    expect(await db.setNote(999999, 'nothing to attach to')).toBe(false)
+  })
+
+  it('survives a history far past anything localStorage would hold', async () => {
+    const db = await freshDb()
+    for (let at = 1; at <= 1200; at++) await db.appendHand(hand(at), totalsWith(at))
+    await db.setNote(1, 'the very first hand')
+
+    // Nothing is evicted here at all, which is the whole point of the store.
+    const all = await db.readAllHands()
+    expect(all).toHaveLength(1200)
+    expect(all.find((h) => h.at === 1)?.note).toBe('the very first hand')
+  })
+})
+
 describe('when IndexedDB cannot be used', () => {
   it('reports unavailable rather than throwing, so the caller can fall back', async () => {
     vi.resetModules()
@@ -148,6 +204,7 @@ describe('when IndexedDB cannot be used', () => {
     expect(await db.readAllHands()).toEqual([])
     expect(await db.countHands()).toBe(0)
     expect(await db.replaceAll([hand(1)], emptyTotals())).toBe(false)
+    expect(await db.setNote(1, 'x')).toBe(false)
 
     globalThis.indexedDB = original
   })

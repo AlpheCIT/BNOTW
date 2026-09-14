@@ -315,6 +315,9 @@ export function StatsView({
                     #{hand.handNumber}
                     {hand.bomb && <span className="tag bomb" style={{ marginLeft: 6 }}>Bomb</span>}
                     {hand.mode === 'coach' && <span className="tag" style={{ marginLeft: 6, color: '#6fd3e8' }}>Coach</span>}
+                    {hand.note && (
+                      <span className="tag" style={{ marginLeft: 6 }} title={hand.note}>Note</span>
+                    )}
                   </td>
                   <td className="num">{hand.hole}</td>
                   <td>{hand.sawFlop ? 'Yes' : '—'}</td>
@@ -358,6 +361,11 @@ export function StatsView({
         <ReplayView
           replay={replaying.replay}
           decisions={replaying.decisions}
+          note={replaying.note ?? ''}
+          onNote={(note) => {
+            tracker.setNote(replaying.at, note)
+            setReplaying({ ...replaying, note: note.trim() || undefined })
+          }}
           onClose={() => setReplaying(null)}
         />
       )}

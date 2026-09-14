@@ -34,6 +34,13 @@ export interface DecisionRecord {
 
 export interface HandRecord {
   at: number
+  /**
+   * Why you did what you did, in your own words.
+   *
+   * The only thing in the record that cannot be rebuilt by playing more, which
+   * is why notes are what keep a hand from being trimmed away.
+   */
+  note?: string
   mode: PlayMode
   handNumber: number
   bomb: boolean

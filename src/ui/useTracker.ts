@@ -28,6 +28,7 @@ import type { Action, HandState } from '../engine/types'
 import { loadPlayerLog, savePlayerLog, type PlayerLog } from '../state/storage'
 import {
   RECENT_IN_MEMORY, appendHand, countHands, openDb, readRecentHands, readTotals, replaceAll,
+  setNote as setNote_db,
 } from '../state/db'
 
 /**
@@ -37,6 +38,34 @@ import {
  */
 const HISTORY_LIMIT = 600
 const REPLAY_LIMIT = 150
+
+/**
+ * Trim the in-memory log for the `localStorage` fallback, keeping notes.
+ *
+ * A note is the one thing in the record that cannot be rebuilt by playing
+ * more, so a noted hand keeps its place and its replay ahead of any un-noted
+ * hand, however old it is. Everything else is newest-first as before.
+ */
+export function trimForStorage(
+  hands: HandRecord[],
+  historyLimit = HISTORY_LIMIT,
+  replayLimit = REPLAY_LIMIT,
+): HandRecord[] {
+  const noted = hands.filter((h) => h.note)
+  const plain = hands.filter((h) => !h.note)
+  const kept = [...noted, ...plain.slice(0, Math.max(0, historyLimit - noted.length))]
+
+  // Back into play order, so the list still reads newest first.
+  kept.sort((a, b) => b.at - a.at)
+
+  let replaysLeft = Math.max(replayLimit, noted.length)
+  return kept.map((hand) => {
+    if (!hand.replay) return hand
+    if (hand.note) return hand
+    if (replaysLeft > 0) { replaysLeft--; return hand }
+    return { ...hand, replay: undefined }
+  })
+}
 
 interface InProgress {
   handNumber: number
@@ -53,6 +82,8 @@ interface InProgress {
 export interface TrackerApi {
   totals: PlayerTotals
   recent: HandRecord[]
+  /** Attach or clear a note on a hand, found by when it was played. */
+  setNote: (at: number, note: string) => void
   /** Call with the state as it stood when the decision was made. */
   recordDecision: (state: HandState, advice: CoachAdvice, action: Action) => void
   /** Call once when a hand finishes. */
@@ -217,14 +248,28 @@ export function useTracker(): TrackerApi {
         return { version: 1, totals, hands }
       }
 
-      const hands = [record, ...prev.hands]
-        .slice(0, HISTORY_LIMIT)
-        .map((hand, i) => (i < REPLAY_LIMIT || !hand.replay ? hand : { ...hand, replay: undefined }))
+      const hands = trimForStorage([record, ...prev.hands])
       const next: PlayerLog = { version: 1, totals, hands }
       if (hydrated.current) savePlayerLog(next)
       return next
     })
     current.current = blank(-1)
+  }, [])
+
+  const setNote = useCallback((at: number, note: string) => {
+    const trimmed = note.trim()
+    setLog((prev) => {
+      const hands = prev.hands.map((hand) => (
+        hand.at === at
+          ? (trimmed ? { ...hand, note: trimmed } : { ...hand, note: undefined })
+          : hand
+      ))
+      const next: PlayerLog = { ...prev, hands }
+      if (!hydrated.current) return next
+      if (usingDb.current) void setNote_db(at, trimmed)
+      else savePlayerLog({ ...next, hands: trimForStorage(hands) })
+      return next
+    })
   }, [])
 
   const reset = useCallback(() => {
@@ -238,5 +283,5 @@ export function useTracker(): TrackerApi {
     setLog(next)
   }, [])
 
-  return { totals: log.totals, recent: log.hands, recordDecision, completeHand, reset }
+  return { totals: log.totals, recent: log.hands, setNote, recordDecision, completeHand, reset }
 }

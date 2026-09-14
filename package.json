@@ -1,0 +1,33 @@
+{
+  "name": "bnotw",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "BNOTW - Best Night Of The Week. Texas Hold'em with BNOTW house rules, plus a running record book.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && tsc --noEmit -p tsconfig.api.json && vite build && node scripts/build-sw.mjs",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "calibrate": "BNOTW_CALIBRATE=1 vitest run src/engine/calibration.test.ts",
+    "typecheck": "tsc -b && tsc --noEmit -p tsconfig.api.json",
+    "coach": "node server/dev-proxy.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "^5.7.3",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.4"
+  }
+}

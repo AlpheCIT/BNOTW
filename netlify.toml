@@ -1,0 +1,38 @@
+# Netlify. Connect the repo and this is the whole configuration.
+#
+# Works with a private repo on the free tier, which is why it is the first
+# suggestion in the README.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Pinned rather than left to the platform default: Vite 7 and the React
+  # plugin both require node ^20.19 || >=22.12, and an older default fails the
+  # install with an engine error that reads like a dependency problem. 22 is
+  # what this is developed and tested on.
+  NODE_VERSION = "22"
+
+# Asset filenames are content-hashed, so they can be cached forever.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# These two are the only way a new build reaches anyone. Caching them is how a
+# deploy silently fails to arrive.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Cache-Control = "no-cache"

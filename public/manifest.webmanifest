@@ -1,0 +1,19 @@
+{
+  "name": "BNOTW — Best Night Of The Week",
+  "short_name": "BNOTW",
+  "description": "Texas Hold'em under BNOTW house rules, with a coach and a running record book.",
+  "start_url": "./",
+  "scope": "./",
+  "id": "bnotw",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d2b1d",
+  "theme_color": "#0d2b1d",
+  "categories": ["games", "education"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

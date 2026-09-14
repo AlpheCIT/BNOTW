@@ -609,6 +609,40 @@ possible.
 
 ## Where the data lives
 
+History lives in **IndexedDB**, one record per hand, and nothing is thrown away.
+
+It used to live in `localStorage`, which holds about 5 MB — so the tracker
+capped itself at 600 hands and dropped replays after 150. Measured, a summary
+row is 0.33 KB and a replay 3.3 KB, which makes a year of play about 10.6 MB:
+twenty times what fits. The ninth night of a season silently evicted the first,
+which is exactly the comparison that tells you whether you are improving.
+
+One record per hand rather than one blob, because a blob would mean rewriting
+every megabyte of the history after every hand. Only the most recent 600 are
+held in memory for the list and the leak review; the rest stay on disk until an
+export asks for them.
+
+The old `localStorage` log is migrated on first run and then left alone — not
+deleted, so a failed migration is recoverable and an older build still opens.
+Where IndexedDB cannot be opened at all (private browsing, a locked-down
+profile) everything falls back to the previous behaviour, caps included.
+
+Nothing is written until the history has been read back. Finishing a hand in
+the first moments after load would otherwise save an empty log over a real one,
+turning a slow read into permanent data loss.
+
+**Book → "Where does my history live?"** explains all of this to whoever is
+handed the app, with home-screen instructions per platform. Adding it to the
+home screen is not cosmetic on iOS: it is what keeps the browser from clearing
+a history that has not been opened in a week, and a poker night is weekly.
+
+### Still not a backup
+
+IndexedDB is evictable like everything else in a browser, and none of it
+survives losing the device. **Book → Backup JSON** is the real safeguard.
+
+
+
 The Record Book, the roster and your own tracked hands are stored in this
 browser's `localStorage`. They survive reloads but never leave the device and
 are not synced anywhere. Your running totals are kept forever; the individual
@@ -642,6 +676,7 @@ src/
     providers/     one file per model service, behind a two-method interface
     playerStats.ts your tendencies, your rating and the honest error bars
   state/           the Record Book: settlement maths, storage, exports
+    db.ts          the hand history, in IndexedDB
   ui/              React components
 api/               the narrator proxy — the only server-side code
 server/            a local wrapper so the proxy can be run in development

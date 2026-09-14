@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { YourData } from './YourData'
 import { money, signedMoney } from '../engine/bnotw'
 import {
   blankNight, blankPlayer, careerStandings, settleNight, sortNights,
@@ -109,6 +110,11 @@ export function RecordBookView({
           />
         </div>
         {error && <div className="warn bad">{error}</div>}
+
+        <details className="yourdata-toggle">
+          <summary>Where does my history live? (worth reading once)</summary>
+          <YourData />
+        </details>
       </div>
 
       {career.length > 0 && (

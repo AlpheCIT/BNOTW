@@ -1,11 +1,19 @@
 /**
  * Watches your seat and turns what happens into a record of how you play.
  *
- * Running counters are kept forever; the hand list is capped, because the
- * counters already carry the totals and a browser's storage is not infinite.
+ * History lives in IndexedDB and nothing is thrown away: the whole point of
+ * keeping it is to see whether you are improving, and a cap that evicts the
+ * start of the season deletes exactly the comparison that answers that.
+ *
+ * Only the most recent hands are held in memory, for the list and the leak
+ * review. The rest stay on disk until an export asks for them.
+ *
+ * Where IndexedDB cannot be opened at all — private browsing, a locked-down
+ * profile — this falls back to the old `localStorage` log, capped as it was
+ * before. Degraded, but working.
  */
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { BIG_BLIND } from '../engine/bnotw'
 import { cardCode } from '../engine/cards'
 import { reviewDecision, type CoachAdvice } from '../engine/coach'
@@ -18,14 +26,16 @@ import {
 import type { Table } from '../engine/table'
 import type { Action, HandState } from '../engine/types'
 import { loadPlayerLog, savePlayerLog, type PlayerLog } from '../state/storage'
+import {
+  RECENT_IN_MEMORY, appendHand, countHands, openDb, readRecentHands, readTotals, replaceAll,
+} from '../state/db'
 
-/** How many individual hands to keep. The totals are never truncated. */
-const HISTORY_LIMIT = 600
 /**
- * How many of those keep their full replay. A replay is an order of magnitude
- * bigger than the summary row, so older hands keep the row and lose the replay
- * rather than the history getting short.
+ * Caps for the `localStorage` fallback only. IndexedDB keeps everything; these
+ * exist because 5 MB does not, and a truncated history is still better than a
+ * failed write mid-hand.
  */
+const HISTORY_LIMIT = 600
 const REPLAY_LIMIT = 150
 
 interface InProgress {
@@ -65,12 +75,57 @@ function blank(handNumber: number): InProgress {
 }
 
 export function useTracker(): TrackerApi {
-  const [log, setLog] = useState<PlayerLog>(() => loadPlayerLog())
+  // Starts empty and hydrates, because IndexedDB cannot be read synchronously.
+  const [log, setLog] = useState<PlayerLog>(() => ({
+    version: 1, totals: emptyTotals(), hands: [],
+  }))
+  /**
+   * Nothing is written until the history has been read back.
+   *
+   * Without this, finishing a hand in the first moments after load would save
+   * an empty log over a real one — turning a slow read into permanent data
+   * loss, which is the opposite of what this change is for.
+   */
+  const hydrated = useRef(false)
+  const usingDb = useRef(false)
   const current = useRef<InProgress>(blank(-1))
   // Keyed on the hand object rather than its number: starting a fresh session
   // resets the numbering, and a set of numbers would silently skip the new
   // hand 1. The weak set also lets finished hands be collected.
   const completed = useRef(new WeakSet<HandState>())
+
+  // Read the history back, migrating the old localStorage log the first time.
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const db = await openDb()
+      const legacy = loadPlayerLog()
+
+      if (!db) {
+        // No IndexedDB: carry on exactly as before.
+        if (!cancelled) { setLog(legacy); hydrated.current = true }
+        return
+      }
+      usingDb.current = true
+
+      const stored = await countHands()
+      if (stored === 0 && (legacy.hands.length > 0 || legacy.totals.hands > 0)) {
+        // One-time move. The old copy is left alone rather than deleted, so a
+        // failed migration is recoverable and an older build still opens.
+        await replaceAll(legacy.hands, legacy.totals)
+      }
+
+      const [totals, hands] = await Promise.all([readTotals(), readRecentHands()])
+      if (cancelled) return
+      setLog({
+        version: 1,
+        totals: totals ?? legacy.totals,
+        hands: hands.length > 0 ? hands : legacy.hands,
+      })
+      hydrated.current = true
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   const forHand = (handNumber: number) => {
     if (current.current.handNumber !== handNumber) current.current = blank(handNumber)
@@ -152,11 +207,21 @@ export function useTracker(): TrackerApi {
     }
 
     setLog((prev) => {
+      const totals = accumulate(prev.totals, record)
+
+      if (usingDb.current) {
+        // Only the window the UI reads is kept in memory; the store keeps all
+        // of it. One append per hand rather than rewriting the whole history.
+        const hands = [record, ...prev.hands].slice(0, RECENT_IN_MEMORY)
+        if (hydrated.current) void appendHand(record, totals)
+        return { version: 1, totals, hands }
+      }
+
       const hands = [record, ...prev.hands]
         .slice(0, HISTORY_LIMIT)
         .map((hand, i) => (i < REPLAY_LIMIT || !hand.replay ? hand : { ...hand, replay: undefined }))
-      const next: PlayerLog = { version: 1, totals: accumulate(prev.totals, record), hands }
-      savePlayerLog(next)
+      const next: PlayerLog = { version: 1, totals, hands }
+      if (hydrated.current) savePlayerLog(next)
       return next
     })
     current.current = blank(-1)
@@ -166,7 +231,10 @@ export function useTracker(): TrackerApi {
     const next: PlayerLog = { version: 1, totals: emptyTotals(), hands: [] }
     completed.current = new WeakSet<HandState>()
     current.current = blank(-1)
+    // Cleared in both places: leaving the old localStorage copy behind would
+    // have it migrated straight back the next time the database is empty.
     savePlayerLog(next)
+    if (usingDb.current) void replaceAll([], next.totals)
     setLog(next)
   }, [])
 

@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "calibrate": "BNOTW_CALIBRATE=1 vitest run src/engine/calibration.test.ts",
     "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false --pretty"
   },
   "dependencies": {

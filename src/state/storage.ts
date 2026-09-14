@@ -6,12 +6,14 @@
  */
 
 import { defaultRoster, type Persona } from '../engine/persona'
+import { emptyTotals, type HandRecord, type PlayerTotals } from '../engine/playerStats'
 import type { GameNight } from './records'
 import { sortNights } from './records'
 
 const STORAGE_KEY = 'bnotw.recordbook.v1'
 const SETTINGS_KEY = 'bnotw.settings.v1'
 const ROSTER_KEY = 'bnotw.roster.v1'
+const PLAYER_KEY = 'bnotw.player.v1'
 const COACH_KEY = 'bnotw.coach.v1'
 
 export interface RecordBook {
@@ -174,5 +176,49 @@ export function saveCoachStats(stats: CoachStats): void {
     localStorage.setItem(COACH_KEY, JSON.stringify(stats))
   } catch {
     // Ignore; coach stats are a convenience, not data worth failing over.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Your own game
+// ---------------------------------------------------------------------------
+
+export interface PlayerLog {
+  version: 1
+  totals: PlayerTotals
+  /** Most recent first, capped. The totals above are never truncated. */
+  hands: HandRecord[]
+}
+
+export function loadPlayerLog(): PlayerLog {
+  const empty: PlayerLog = { version: 1, totals: emptyTotals(), hands: [] }
+  if (typeof localStorage === 'undefined') return empty
+  try {
+    const raw = localStorage.getItem(PLAYER_KEY)
+    if (!raw) return empty
+    const data = JSON.parse(raw) as PlayerLog
+    if (!data?.totals) return empty
+    return {
+      version: 1,
+      totals: { ...emptyTotals(), ...data.totals },
+      hands: Array.isArray(data.hands) ? data.hands : [],
+    }
+  } catch {
+    return empty
+  }
+}
+
+export function savePlayerLog(log: PlayerLog): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(PLAYER_KEY, JSON.stringify(log))
+  } catch {
+    // Out of quota: drop the hand list and keep the totals, which are the part
+    // that cannot be rebuilt.
+    try {
+      localStorage.setItem(PLAYER_KEY, JSON.stringify({ ...log, hands: [] }))
+    } catch {
+      // Nothing more to be done; the session still works.
+    }
   }
 }

@@ -13,15 +13,18 @@ import { CoachScorecard } from './ui/CoachPanel'
 import { PlayersView } from './ui/Players'
 import { RecordBookView } from './ui/RecordBook'
 import { RulesView } from './ui/RulesView'
+import { StatsView } from './ui/StatsView'
 import { TableView } from './ui/TableView'
 import { useCoach } from './ui/useCoach'
 import { useGame, type Speed } from './ui/useGame'
+import { useTracker } from './ui/useTracker'
 
-type Tab = 'table' | 'coach' | 'players' | 'book' | 'rules'
+type Tab = 'table' | 'coach' | 'stats' | 'players' | 'book' | 'rules'
 
 const TABS: [Tab, string][] = [
   ['table', 'Table'],
   ['coach', 'Coach'],
+  ['stats', 'My Game'],
   ['players', 'Players'],
   ['book', 'Book'],
   ['rules', 'Rules'],
@@ -75,6 +78,7 @@ export default function App() {
   const game = useGame(tableSettings, tab === 'table')
   const coachGame = useGame(tableSettings, tab === 'coach')
   const coach = useCoach()
+  const tracker = useTracker()
 
   useEffect(() => { saveSettings(prefs) }, [prefs])
   useEffect(() => {
@@ -149,7 +153,12 @@ export default function App() {
 
       <main className="screen">
         {tab === 'table' && (
-          <TableView game={game} onCashOut={() => setShowCashOut(true)} />
+          <TableView
+            game={game}
+            onCashOut={() => setShowCashOut(true)}
+            tracker={tracker}
+            mode="table"
+          />
         )}
         {tab === 'coach' && (
           <>
@@ -163,9 +172,16 @@ export default function App() {
                 Your stats
               </button>
             </div>
-            <TableView game={coachGame} onCashOut={() => {}} coach={coach} />
+            <TableView
+              game={coachGame}
+              onCashOut={() => {}}
+              coach={coach}
+              tracker={tracker}
+              mode="coach"
+            />
           </>
         )}
+        {tab === 'stats' && <StatsView tracker={tracker} />}
         {tab === 'players' && (
           <PlayersView roster={roster} setRoster={setRoster} onSeatChange={reseat} />
         )}

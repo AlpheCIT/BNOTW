@@ -1,8 +1,7 @@
 import { money, signedMoney } from '../engine/bnotw'
 import { cardCode } from '../engine/cards'
-import { pct, type CoachAdvice } from '../engine/coach'
+import { pct, type CoachAdvice, type DecisionReview } from '../engine/coach'
 import type { CoachStats } from '../state/storage'
-import type { DecisionReview } from './useCoach'
 
 /** The advice panel shown while it is your turn in coach mode. */
 export function CoachPanel({

@@ -10,8 +10,10 @@ import type { Action, HandPlayer, HandState, Seat as SeatModel } from '../engine
 import { Avatar } from './Avatar'
 import { CoachPanel } from './CoachPanel'
 import { CardRow, PlayingCard } from './pieces'
+import type { PlayMode } from '../engine/playerStats'
 import type { CoachApi } from './useCoach'
 import type { GameApi } from './useGame'
+import type { TrackerApi } from './useTracker'
 
 /** Seats sit on an ellipse with the human parked at the bottom. */
 function ellipse(index: number, total: number, rx: number, ry: number) {
@@ -32,12 +34,15 @@ function betSpot(index: number, total: number) {
 }
 
 export function TableView({
-  game, onCashOut, coach,
+  game, onCashOut, coach, tracker, mode = 'table',
 }: {
   game: GameApi
   onCashOut: () => void
   /** Present only in coach mode. */
   coach?: CoachApi
+  /** Records how you play, in both modes. */
+  tracker?: TrackerApi
+  mode?: PlayMode
 }) {
   const { table, version } = game
   const hand = table.hand
@@ -69,17 +74,24 @@ export function TableView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coach?.xray, version, hand])
 
-  // Count a coached hand once, when it finishes.
-  const countedRef = useRef(-1)
+  // Wrap a finished hand up exactly once. Keyed on the hand itself, because a
+  // fresh session restarts the numbering from one.
+  const countedRef = useRef(new WeakSet<HandState>())
   useEffect(() => {
-    if (!coach || !hand?.complete) return
-    if (countedRef.current === hand.handNumber) return
-    countedRef.current = hand.handNumber
-    coach.countHand()
-  }, [coach, hand, hand?.complete, hand?.handNumber])
+    if (!hand?.complete || countedRef.current.has(hand)) return
+    countedRef.current.add(hand)
+    coach?.countHand()
+    tracker?.completeHand(table, mode)
+  }, [coach, tracker, table, mode, hand, hand?.complete])
 
   const act = (action: Action) => {
-    if (coach && advice) coach.record(advice, action)
+    // In coach mode the advice is already on screen. In normal play it is
+    // worked out here instead, so tracking costs nothing until the moment a
+    // decision is actually made and never slows a render.
+    const scored = advice
+      ?? (hand && tracker ? advise(hand, table.seats, seat, Math.random, 700) : null)
+    if (coach && scored) coach.record(scored, action)
+    if (hand && tracker && scored) tracker.recordDecision(hand, scored, action)
     game.act(action)
   }
 

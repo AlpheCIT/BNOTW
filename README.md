@@ -3,7 +3,7 @@
 A Texas Hold'em app built around the BNOTW house rules, plus a running Record
 Book that carries from game night to game night.
 
-Four parts:
+Five parts:
 
 - **The Table** — $0.25/$0.50 No-Limit Hold'em against computer opponents, with
   every BNOTW house rule in play: the $42/$40 buy-in, Bob-aloos and Dave-aloos,
@@ -12,6 +12,9 @@ Four parts:
 - **Coach** — a separate practice table that shows your equity, your outs, the
   price you are being laid and what it would recommend, then reviews what you
   actually did. Nothing from it reaches the Record Book.
+- **My Game** — every hand you play, tracked: your tendencies in the terms a
+  poker tracker uses, where your decisions go wrong, and a rating built on
+  decision quality rather than results.
 - **Players** — the roster of regulars, each with a face and a way of playing
   you can tune.
 - **The Record Book** — buy-ins, rebuys, cash-outs, net profit, High Roller
@@ -224,10 +227,87 @@ Two honest notes on the numbers:
   ahead". Cards that only pair the board are not counted, since they help
   everyone equally.
 
+## My Game
+
+Every hand you play — at the table and in coach mode both — is recorded, and two
+different things are built from it. They are worth keeping apart.
+
+### Tendencies: what you do
+
+The standard tracker stats: VPIP, pre-flop raise, 3-bet, aggression factor, went
+to showdown, and won at showdown. These are descriptive. There is no wrong VPIP,
+only one that does not match the way you are trying to play.
+
+Each one is shown against a shaded guidance band, and held back entirely until
+there is enough of a sample for the number to mean anything. **The bands are
+rough guidance for a six-handed game, not rules** — a friendly live game runs
+looser than them across the board, and playing looser than "standard" is a
+choice rather than a mistake so long as you know you are making it.
+
+Alongside them is a plain-language read on what to work on: limping too much,
+calling more than you bet, taking too many flops to showdown, and so on.
+
+### Rating: how well you do it
+
+Here is the thing that makes a poker rating hard, and it is worth being blunt
+about.
+
+**You cannot rate a poker player on results at home-game sample sizes.** Chess
+Elo works because chess is nearly deterministic — a win is real evidence. Poker
+results are so noisy that pinning a win rate down to within a few big blinds per
+hundred takes tens of thousands of hands. The app shows you exactly this: your
+win rate is displayed with its real 95% confidence band, and after a few hundred
+hands that band comfortably covers both a good winner and a bad loser. It also
+tells you how many more hands it would take to narrow it to ±5 bb/100, which is
+usually a sobering number.
+
+So the rating is not built on results. It is built on **decision quality** —
+how much expected value your decisions gave up against the line the coach would
+take. This is the same reason a chess engine rates a player by accuracy rather
+than by their win/loss record: it says far more, far sooner. A few hundred hands
+of decisions is a usable sample; a few hundred hands of *results* is nothing.
+
+The scale was **calibrated by measurement, not chosen**. Each bot skill level was
+played against a fixed field with every one of its decisions scored by the coach,
+and those same profiles were separately measured head to head for their actual
+win rate. Putting the two together anchors the scale:
+
+| Profile | EV index | Agreed with coach | Rating |
+| --- | --- | --- | --- |
+| Skill 1 | 214.8 | 52% | 1049 — Paying for lessons |
+| Skill 2 | 68.3 | 73% | 1357 — Coming along |
+| Skill 3 | 26.5 | 78% | 1444 — Solid |
+| Skill 4 | 30.6 | 75% | 1436 — Solid |
+| Skill 5 | 9.3 | 75% | 1481 — Playing the line |
+
+1500 is playing the coach's line exactly. The gap between a beginner and a solid
+player lands near 400 points, the spread chess uses for a gap that size.
+
+The number carries a **real confidence interval**, derived from the spread of
+your own per-decision results, and is marked provisional below 150 scored
+decisions. A rating built on thirty hands announces how little it knows rather
+than pretending otherwise.
+
+**One caveat, stated in the app as well as here:** the EV index prices every
+decision on its own, as though the hand ended there, so it runs about six times
+larger than the money that actually changes hands — the gap between skill 1 and
+skill 3 is 188 index points but only 33 bb/100 of real win rate. It is a
+comparative index for measuring yourself against yourself over time, not a
+dollar figure.
+
+To re-derive the calibration after changing the bots or the coach:
+
+```bash
+npm run calibrate     # around ten minutes
+```
+
 ## Where the data lives
 
-The Record Book is stored in this browser's `localStorage`. It survives reloads
-but never leaves the device and is not synced anywhere. Use **Backup JSON** to
+The Record Book, the roster and your own tracked hands are stored in this
+browser's `localStorage`. They survive reloads but never leave the device and
+are not synced anywhere. Your running totals are kept forever; the individual
+hand list is capped at the most recent 600, since the totals already carry the
+numbers. Use **Backup JSON** to
 keep a copy or move the book to another device, and **Import JSON** to merge it
 back — nights are matched by id, so re-importing an edited night updates it
 rather than duplicating it. CSV exports are there for spreadsheets.
@@ -246,6 +326,7 @@ src/
     ai.ts          computer opponents
     persona.ts     who is in the seat: faces, skill, tendencies
     coach.ts       equity, outs, pot odds and the recommendation
+    playerStats.ts your tendencies, your rating and the honest error bars
   state/           the Record Book: settlement maths, storage, exports
   ui/              React components
 ```

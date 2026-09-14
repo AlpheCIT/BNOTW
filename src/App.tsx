@@ -6,7 +6,8 @@ import type { Persona } from './engine/persona'
 import type { BombPotTrigger, TableSettings } from './engine/table'
 import { blankNight, makeId, type GameNight, type NightPlayer } from './state/records'
 import {
-  loadBook, loadRoster, loadSettings, saveBook, saveRoster, saveSettings,
+  loadBook, loadCoachKey, loadRoster, loadSettings, saveBook, saveCoachKey,
+  saveRoster, saveSettings,
   type RecordBook, type RosterState,
 } from './state/storage'
 import { CoachScorecard } from './ui/CoachPanel'
@@ -70,6 +71,8 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showCashOut, setShowCashOut] = useState(false)
   const [showCoachStats, setShowCoachStats] = useState(false)
+  // Held apart from the rest of the settings so it never rides along in an export.
+  const [coachKey, setCoachKeyState] = useState<string>(() => loadCoachKey())
 
   const opponents = useMemo(() => seatedPersonas(roster), [roster])
   const tableSettings = useMemo<Partial<TableSettings>>(
@@ -86,8 +89,8 @@ export default function App() {
   // Two narrators: an explanation at the table is about one decision, and a
   // review in My Game is about a whole history. Sharing one would have each
   // wipe the other's answer.
-  const tableNarrator = useNarrator(prefs.coachEndpoint)
-  const reviewNarrator = useNarrator(prefs.coachEndpoint)
+  const tableNarrator = useNarrator(prefs.coachEndpoint, coachKey)
+  const reviewNarrator = useNarrator(prefs.coachEndpoint, coachKey)
 
   useEffect(() => { saveSettings(prefs) }, [prefs])
   useEffect(() => {
@@ -98,6 +101,11 @@ export default function App() {
   const setBook = useCallback((next: RecordBook) => {
     setBookState(next)
     saveBook(next)
+  }, [])
+
+  const setCoachKey = useCallback((next: string) => {
+    setCoachKeyState(next)
+    saveCoachKey(next)
   }, [])
 
   const setRoster = useCallback((next: RosterState) => {
@@ -209,6 +217,8 @@ export default function App() {
       {showSettings && (
         <SettingsDialog
           prefs={prefs}
+          coachKey={coachKey}
+          onCoachKey={setCoachKey}
           onClose={() => setShowSettings(false)}
           onApply={(next, restart) => {
             setPrefs(next)
@@ -251,13 +261,17 @@ export default function App() {
 // ---------------------------------------------------------------------------
 
 function SettingsDialog({
-  prefs, onClose, onApply,
+  prefs, coachKey, onCoachKey, onClose, onApply,
 }: {
   prefs: Preferences
+  coachKey: string
+  onCoachKey: (key: string) => void
   onClose: () => void
   onApply: (prefs: Preferences, restart: boolean) => void
 }) {
   const [draft, setDraft] = useState(prefs)
+  const [keyDraft, setKeyDraft] = useState(coachKey)
+  const [showKey, setShowKey] = useState(false)
   const needsRestart = draft.playerName !== prefs.playerName
 
   const set = <K extends keyof Preferences>(key: K, value: Preferences[K]) =>
@@ -266,12 +280,7 @@ function SettingsDialog({
   return (
     <div className="overlay" onClick={onClose}>
       <div className="dialog" onClick={(e) => e.stopPropagation()}>
-        <h2>Table Settings</h2>
-        <p className="sub">
-          The house rules are fixed. These are just how the app deals them —
-          who sits down is up to the Players tab.
-        </p>
-
+        <h2>Your Profile</h2>
         <div className="field">
           <label htmlFor="name">Your name</label>
           <input
@@ -281,6 +290,65 @@ function SettingsDialog({
             onChange={(e) => set('playerName', e.target.value)}
           />
         </div>
+
+        <div className="field">
+          <label htmlFor="coachkey">Anthropic API key</label>
+          <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
+            <input
+              id="coachkey"
+              type={showKey ? 'text' : 'password'}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="sk-ant-…"
+              value={keyDraft}
+              onChange={(e) => { setKeyDraft(e.target.value); onCoachKey(e.target.value.trim()) }}
+            />
+            <button
+              className="btn small ghost"
+              type="button"
+              onClick={() => setShowKey((v) => !v)}
+              aria-label={showKey ? 'Hide the key' : 'Show the key'}
+            >
+              {showKey ? 'Hide' : 'Show'}
+            </button>
+            {keyDraft && (
+              <button
+                className="btn small danger"
+                type="button"
+                onClick={() => { setKeyDraft(''); onCoachKey('') }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <p className="sub" style={{ marginTop: 4 }}>
+            Optional, and only for explanations. With a key set, the coach can put
+            its reasoning into words, answer follow-ups, and review your history for
+            patterns. Everything else — the equity, the outs, the pot odds, the
+            rating — is computed on this device and needs nothing.
+          </p>
+          {keyDraft && !draft.coachEndpoint.trim() && (
+            <div className="warn">
+              This key is stored in this browser and sent straight to Anthropic from
+              this device. That is fine for your own install; it is not something to
+              put on a phone you hand round the table, because anything with access
+              to the browser can read it. For shared use, run the proxy below instead
+              and the key stays on the server.
+            </div>
+          )}
+          {keyDraft && draft.coachEndpoint.trim() && (
+            <div className="warn">
+              An endpoint is set below, so that is being used and this key is
+              ignored — the proxy keeps the key off this device.
+            </div>
+          )}
+        </div>
+
+        <h2 style={{ marginTop: 18 }}>Table Settings</h2>
+        <p className="sub">
+          The house rules are fixed. These are just how the app deals them —
+          who sits down is up to the Players tab.
+        </p>
 
         <div className="field">
           <label htmlFor="speed">Pace</label>
@@ -364,9 +432,9 @@ function SettingsDialog({
             onChange={(e) => set('coachEndpoint', e.target.value)}
           />
           <p className="sub" style={{ marginTop: 4 }}>
-            Optional. With an endpoint set, the coach can explain a spot in words and
-            review your history for patterns. Everything else — the equity, the outs,
-            the pot odds, the rating — is computed on this device and works without it.
+            The safer alternative to a key. Run <code>npm run coach</code> with the key
+            on the server and point this at it; nothing secret then lives in the browser.
+            Takes precedence over the key above when both are set.
           </p>
         </div>
 

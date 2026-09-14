@@ -3,7 +3,8 @@ import { mulberry32, parseCards } from './cards'
 import { advise } from './coach'
 import { decisionBrief, leakBrief } from './brief'
 import {
-  NarratorError, httpNarrator, narratorEndpoint, offlineNarrator,
+  NarratorError, chooseNarrator, directNarrator, httpNarrator, narratorEndpoint,
+  offlineNarrator,
 } from './narrator'
 import { accumulate, emptyTotals, type HandRecord } from './playerStats'
 import { dealHand, applyAction, advanceStreet } from './hand'
@@ -252,5 +253,83 @@ describe('parsing helpers used by the briefs', () => {
     const flush = brief.outs.find((o) => o.makes === 'Flush')
     expect(flush).toMatchObject({ count: 9 })
     expect(flush!.byRiver).toMatch(/^3[45]\./)
+  })
+})
+
+describe('choosing how to reach the narrator', () => {
+  it('is off with neither a proxy nor a key', () => {
+    const { via, narrator } = chooseNarrator('', '')
+    expect(via).toBe('none')
+    expect(narrator.available).toBe(false)
+  })
+
+  it('uses a key when that is all there is', () => {
+    const { via, narrator } = chooseNarrator('', 'sk-ant-test')
+    expect(via).toBe('key')
+    expect(narrator.available).toBe(true)
+  })
+
+  it('prefers the proxy when both are set', () => {
+    // The proxy exists to keep the key off the device; quietly preferring the
+    // browser key here would undo the only reason to run one.
+    expect(chooseNarrator('https://coach.example/api', 'sk-ant-test').via).toBe('proxy')
+  })
+
+  it('ignores whitespace-only configuration', () => {
+    expect(chooseNarrator('   ', '  ').via).toBe('none')
+    expect(chooseNarrator('   ', 'sk-ant-test').via).toBe('key')
+  })
+})
+
+describe('the direct browser narrator', () => {
+  it('refuses to run without a key', async () => {
+    const narrator = directNarrator('')
+    expect(narrator.available).toBe(false)
+    await expect(narrator.narrate({ kind: 'leaks', brief: {} as never }))
+      .rejects.toThrow(/No API key/)
+  })
+
+  /**
+   * Load a fresh copy of the module with the SDK stubbed out. The assertions
+   * use that copy's own `NarratorError`, because a re-imported module brings a
+   * new class object and `instanceof` against the outer one would fail even
+   * though the behaviour is right.
+   */
+  async function withStubbedSdk(status: number) {
+    vi.resetModules()
+    const fail = async () => { throw Object.assign(new Error('stub'), { status }) }
+    vi.doMock('@anthropic-ai/sdk', () => ({
+      default: class {
+        beta = { messages: { create: fail } }
+        messages = { parse: fail }
+      },
+    }))
+    return import('./narrator')
+  }
+
+  it('turns a rejected key into a clear, non-retryable error', async () => {
+    const mod = await withStubbedSdk(401)
+    const { advice } = spot()
+    const error = await mod.directNarrator('sk-ant-wrong')
+      .narrate({ kind: 'decision', brief: decisionBrief(advice, 'on the button') })
+      .catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(mod.NarratorError)
+    expect((error as NarratorError).message).toMatch(/rejected/)
+    expect((error as NarratorError).retryable).toBe(false)
+    vi.doUnmock('@anthropic-ai/sdk')
+    vi.resetModules()
+  })
+
+  it('marks a rate limit and a server fault as worth retrying', async () => {
+    for (const status of [429, 503]) {
+      const mod = await withStubbedSdk(status)
+      const { advice } = spot()
+      const error = await mod.directNarrator('sk-ant-test')
+        .narrate({ kind: 'decision', brief: decisionBrief(advice, 'on the button') })
+        .catch((e: unknown) => e as NarratorError)
+      expect((error as NarratorError).retryable, `status ${status}`).toBe(true)
+      vi.doUnmock('@anthropic-ai/sdk')
+      vi.resetModules()
+    }
   })
 })

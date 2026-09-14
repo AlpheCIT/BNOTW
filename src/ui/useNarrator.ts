@@ -8,13 +8,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  NarratorError, httpNarrator, narratorEndpoint, offlineNarrator,
-  type NarrationRequest, type NarrationResult,
+  NarratorError, chooseNarrator, narratorEndpoint,
+  type NarrationRequest, type NarrationResult, type NarratorMode,
 } from '../engine/narrator'
 
 export interface NarratorApi {
   /** False when nothing is configured; the UI hides its affordances. */
   available: boolean
+  /** How it is connected, for the UI to explain itself. */
+  via: NarratorMode
   endpoint: string
   result: NarrationResult | null
   loading: boolean
@@ -23,11 +25,15 @@ export interface NarratorApi {
   clear: () => void
 }
 
-export function useNarrator(endpointOverride?: string | null): NarratorApi {
+export function useNarrator(
+  endpointOverride?: string | null,
+  apiKey?: string | null,
+): NarratorApi {
   const endpoint = useMemo(() => narratorEndpoint(endpointOverride), [endpointOverride])
-  const narrator = useMemo(
-    () => (endpoint ? httpNarrator(endpoint) : offlineNarrator),
-    [endpoint],
+  const key = apiKey?.trim() ?? ''
+  const { via, narrator } = useMemo(
+    () => chooseNarrator(endpoint, key),
+    [endpoint, key],
   )
 
   const [result, setResult] = useState<NarrationResult | null>(null)
@@ -66,5 +72,5 @@ export function useNarrator(endpointOverride?: string | null): NarratorApi {
   // Never leave a request running behind a closed panel.
   useEffect(() => () => inFlight.current?.abort(), [])
 
-  return { available: narrator.available, endpoint, result, loading, error, ask, clear }
+  return { available: narrator.available, via, endpoint, result, loading, error, ask, clear }
 }

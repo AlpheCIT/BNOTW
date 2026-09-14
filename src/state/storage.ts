@@ -14,6 +14,7 @@ const STORAGE_KEY = 'bnotw.recordbook.v1'
 const SETTINGS_KEY = 'bnotw.settings.v1'
 const ROSTER_KEY = 'bnotw.roster.v1'
 const PLAYER_KEY = 'bnotw.player.v1'
+const COACH_KEY_KEY = 'bnotw.coachkey.v1'
 const COACH_KEY = 'bnotw.coach.v1'
 
 export interface RecordBook {
@@ -228,5 +229,32 @@ export function savePlayerLog(log: PlayerLog): void {
     } catch {
       // Try the next, smaller shape.
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The coach API key
+// ---------------------------------------------------------------------------
+
+/**
+ * Stored on its own rather than inside the settings blob, so it can never ride
+ * along in a Record Book export or a settings backup by accident.
+ */
+export function loadCoachKey(): string {
+  if (typeof localStorage === 'undefined') return ''
+  try {
+    return localStorage.getItem(COACH_KEY_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function saveCoachKey(key: string): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    if (key) localStorage.setItem(COACH_KEY_KEY, key)
+    else localStorage.removeItem(COACH_KEY_KEY)
+  } catch {
+    // Private browsing: the key simply will not be remembered.
   }
 }

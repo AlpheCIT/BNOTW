@@ -344,9 +344,27 @@ other way round, and it is told in plain terms not to recompute anything or
 invent a figure that is not in front of it. If a fact is not in the brief, the
 narrator does not know it.
 
-### Running it
+### Two ways to connect
 
-The proxy exists for one reason: an API key cannot ship in a browser.
+**An API key, in Settings → Your Profile.** Paste an Anthropic key and it works
+immediately, with no server to run. The app calls Anthropic directly from the
+browser.
+
+Be clear-eyed about what that means: a key held in a browser is readable by
+anything with access to the page — a browser extension, anyone using the device,
+any script that ever gets injected. That is fine for your own install. It is not
+something to put on a phone you hand round the table. The key is stored on its
+own, never inside the settings blob, so it cannot ride along in a Record Book
+export or a settings backup.
+
+**A proxy, for anything shared.** The key stays on the server and nothing secret
+lives in the browser. When both are configured the proxy wins, because
+preferring the browser key would quietly undo the only reason to run one.
+
+The SDK is loaded on demand, so leaving explanations off costs nothing in the
+bundle.
+
+### Running the proxy
 
 ```bash
 cp .env.example .env.local           # set VITE_COACH_ENDPOINT
@@ -369,9 +387,13 @@ prose.
 Swapping providers should not touch the app: `src/engine/narration.ts` is the
 wire contract, and the model lives entirely behind the proxy.
 
-**Caveat:** the live request path has not been exercised against the real API —
-it was built from the current SDK documentation and verified end to end against
-a stub with the same wire contract. Everything else here is tested normally.
+**Caveat:** no request has been made against the real Anthropic API — there were
+no credentials in the build environment. The client path *is* exercised: with a
+key set, the SDK builds and sends a real request (verified against an intercepted
+`api.anthropic.com`, key header and all), and the proxy path is verified against
+a stub speaking the same wire contract. What remains unproven is whether the
+service accepts the specific parameters — the model id, the fallback beta — so
+treat the first real call as the test.
 
 ## Where the data lives
 

@@ -73,10 +73,105 @@ export function httpNarrator(endpoint: string): Narrator {
   }
 }
 
+/**
+ * Call Anthropic straight from the browser with the player's own key.
+ *
+ * This is the convenient path, not the safe one. A key held in a browser is
+ * readable by anything with access to the page — a browser extension, anyone
+ * on the device, any script that ever gets injected — so it suits a personal
+ * install and not an app handed round the group. The proxy exists for that.
+ *
+ * The SDK is imported on demand so nobody who leaves this off pays for it in
+ * their bundle.
+ */
+export function directNarrator(apiKey: string): Narrator {
+  return {
+    available: Boolean(apiKey),
+    async narrate(request, signal) {
+      if (!apiKey) throw new NarratorError('No API key is set.', false)
+
+      const [{ default: Anthropic }, { zodOutputFormat }, prompts] = await Promise.all([
+        import('@anthropic-ai/sdk'),
+        import('@anthropic-ai/sdk/helpers/zod'),
+        import('./narratorPrompt'),
+      ])
+
+      const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true })
+
+      try {
+        if (request.kind === 'leaks') {
+          const response = await client.messages.parse({
+            model: prompts.NARRATOR_MODEL,
+            max_tokens: 4000,
+            output_config: { format: zodOutputFormat(prompts.FindingsSchema) },
+            messages: [{ role: 'user', content: prompts.leakPrompt(request.brief) }],
+          }, { signal })
+          if (response.stop_reason === 'refusal') {
+            throw new NarratorError('The model declined to answer that one.', false)
+          }
+          const parsed = response.parsed_output
+          if (!parsed) throw new NarratorError('The review came back unreadable.', true)
+          return { text: parsed.summary, findings: parsed.findings }
+        }
+
+        const history = (request.history ?? []).slice(-6).map((turn) => ({
+          role: turn.role,
+          content: turn.text,
+        }))
+        const response = await client.beta.messages.create({
+          model: prompts.NARRATOR_MODEL,
+          max_tokens: 1200,
+          betas: [prompts.FALLBACK_BETA],
+          fallbacks: 'default',
+          messages: [
+            ...history,
+            { role: 'user', content: prompts.decisionPrompt(request.brief, request.question) },
+          ],
+        }, { signal })
+        if (response.stop_reason === 'refusal') {
+          throw new NarratorError('The model declined to answer that one.', false)
+        }
+        return { text: prompts.textOf(response) }
+      } catch (cause) {
+        if (cause instanceof NarratorError) throw cause
+        if ((cause as Error)?.name === 'AbortError') throw cause
+        const status = (cause as { status?: number })?.status
+        if (status === 401) throw new NarratorError('That API key was rejected.', false)
+        if (status === 429) throw new NarratorError('Rate limited — try again shortly.', true)
+        if (status && status >= 500) throw new NarratorError('Anthropic had a problem. Try again.', true)
+        throw new NarratorError(
+          (cause as Error)?.message || 'The coach could not answer.',
+          false,
+        )
+      }
+    },
+  }
+}
+
 /** Nothing configured: every call fails the same way, and callers say so. */
 export const offlineNarrator: Narrator = {
   available: false,
   async narrate() {
     throw new NarratorError('No coach endpoint is configured.', false)
   },
+}
+
+export type NarratorMode = 'proxy' | 'key' | 'none'
+
+/**
+ * Pick how to reach the narrator.
+ *
+ * A proxy always wins over a key, because the whole reason the proxy exists is
+ * to keep the key off the device — silently preferring the browser key when
+ * both are set would quietly undo that.
+ */
+export function chooseNarrator(
+  endpoint: string,
+  apiKey: string,
+): { via: NarratorMode; narrator: Narrator } {
+  const url = endpoint.trim()
+  const key = apiKey.trim()
+  if (url) return { via: 'proxy', narrator: httpNarrator(url) }
+  if (key) return { via: 'key', narrator: directNarrator(key) }
+  return { via: 'none', narrator: offlineNarrator }
 }

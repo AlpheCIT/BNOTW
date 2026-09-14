@@ -126,7 +126,7 @@ export function useGame(
           if (seat === null || table.seats[seat].isHuman) return
           timer = setTimeout(() => {
             if (hand.phase !== 'acting' || hand.actingSeat !== seat) return
-            table.act(seat, decideAction({ state: hand, seats: table.seats, seat, rng }))
+            table.act(seat, decideAction({ state: hand, seats: table.seats, seat, rng, reads: table.reads }))
           }, pace.bot)
           return
         }

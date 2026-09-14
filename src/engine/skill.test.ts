@@ -58,7 +58,9 @@ async function session(seed: number, hands: number, skills: [Skill, Skill]): Pro
       switch (hand.phase) {
         case 'acting': {
           const seat = hand.actingSeat!
-          table.act(seat, decideAction({ state: hand, seats: table.seats, seat, rng }))
+          table.act(seat, decideAction({
+            state: hand, seats: table.seats, seat, rng, reads: table.reads,
+          }))
           break
         }
         case 'discard': {

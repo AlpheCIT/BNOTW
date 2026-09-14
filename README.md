@@ -388,6 +388,14 @@ played against a fixed field with every one of its decisions scored by the coach
 and those same profiles were separately measured head to head for their actual
 win rate. Putting the two together anchors the scale:
 
+> **These figures are stale and are being re-derived.** Fixing the range
+> sampler changed the coach's equity estimates, which changes decision scoring,
+> which moves every number in the table below. They are left here rather than
+> deleted because the *method* still stands and the shape is unlikely to
+> change — but do not quote the numbers until `npm run calibrate` has been re-run
+> and this note is gone. The skill 5 vs skill 3 row in particular is under
+> active measurement; see #4.
+
 | Profile | EV index | Agreed with coach | Rating |
 | --- | --- | --- | --- |
 | Skill 1 | 214.8 | 52% | 1049 — Paying for lessons |

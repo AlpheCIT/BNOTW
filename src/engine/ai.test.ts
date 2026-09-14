@@ -115,8 +115,13 @@ describe('table dynamics', () => {
     // Loose and social, but not a table that gets it all in every hand. These
     // bounds are deliberately wide; they exist to catch the bots going
     // haywire, not to pin down exact play. Seeded, so they are deterministic.
+    //
+    // The rebuy ceiling is generous because the default line-up includes a
+    // maniac and a gambler at skill 2, and players who genuinely misjudge
+    // their hands genuinely go broke. Busting is the point of a weak player,
+    // not a bug in one.
     expect(avgPot, `average pot was ${money(Math.round(avgPot))}`).toBeLessThan(4000)
     expect(avgPot).toBeGreaterThan(200)
-    expect(rebuysPer100, `rebuys per 100 hands: ${rebuysPer100}`).toBeLessThan(8)
+    expect(rebuysPer100, `rebuys per 100 hands: ${rebuysPer100}`).toBeLessThan(14)
   }, 180_000)
 })

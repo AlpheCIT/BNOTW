@@ -409,15 +409,16 @@ export function advise(
   }
 }
 
+/** Includes the preposition, so it reads properly in a sentence. */
 function positionName(state: HandState, seat: number): string {
   const i = state.order.indexOf(seat)
   const n = state.order.length
-  if (i === n - 1) return 'the button'
-  if (i === n - 2) return 'the cut-off'
-  if (seat === state.smallBlindSeat) return 'the small blind'
-  if (seat === state.bigBlindSeat) return 'the big blind'
-  if (i <= Math.floor(n / 3)) return 'early position'
-  return 'middle position'
+  if (i === n - 1) return 'on the button'
+  if (i === n - 2) return 'in the cut-off'
+  if (seat === state.smallBlindSeat) return 'in the small blind'
+  if (seat === state.bigBlindSeat) return 'in the big blind'
+  if (i <= Math.floor(n / 3)) return 'in early position'
+  return 'in middle position'
 }
 
 function preflopAdvice(
@@ -431,19 +432,19 @@ function preflopAdvice(
   equity: number,
 ): Recommendation {
   const where = positionName(state, seat)
-  const late = ['the button', 'the cut-off'].includes(where)
+  const late = where === 'on the button' || where === 'in the cut-off'
   const forced = Math.max(BIG_BLIND, ...state.straddles.map((s) => s.amount))
   const raised = state.currentBet > forced
   const reasons: string[] = [
     `${starting.label} scores ${starting.chen} on the Chen scale — ${starting.grade.toLowerCase()}.`,
-    `You are in ${where}.`,
+    `You are ${where}.`,
   ]
   if (state.straddles.length > 0) {
     reasons.push(`A straddle makes this a ${money(forced)} game for this hand, so everything is priced off that.`)
   }
 
   // Position is worth about two Chen points.
-  const need = (raised ? 10 : 6.5) - (late ? 2 : 0) + (where === 'early position' ? 1 : 0)
+  const need = (raised ? 10 : 6.5) - (late ? 2 : 0) + (where === 'in early position' ? 1 : 0)
 
   if (legal.canCheck) {
     if (starting.chen >= need + 4 && legal.canBet) {
@@ -475,7 +476,7 @@ function preflopAdvice(
   }
 
   reasons.push(
-    `It needs about ${need.toFixed(1)} to continue for ${money(toCall)} from ${where}, ` +
+    `It needs about ${need.toFixed(1)} to continue for ${money(toCall)} ${where}, ` +
     `and it is ${starting.chen}.`,
   )
   if (equity > breakEven) {

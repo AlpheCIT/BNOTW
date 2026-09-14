@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BIG_BLIND, BOMB_POT_GAMES, CHIP_INCREMENT, NAMED_BETS, SMALL_BLIND,
   money, namedBetFor, toChipIncrement,
 } from '../engine/bnotw'
 import { shortHand } from '../engine/handEval'
-import { bestHand, legalActions, potTotal } from '../engine/hand'
-import type { HandPlayer, HandState, Seat as SeatModel } from '../engine/types'
+import { advise, pct, showdownEquity, type CoachAdvice, type EquityResult } from '../engine/coach'
+import { bestHand, legalActions, livePlayers, potTotal } from '../engine/hand'
+import type { Action, HandPlayer, HandState, Seat as SeatModel } from '../engine/types'
+import { Avatar } from './Avatar'
+import { CoachPanel } from './CoachPanel'
 import { CardRow, PlayingCard } from './pieces'
+import type { CoachApi } from './useCoach'
 import type { GameApi } from './useGame'
 
 /** Seats sit on an ellipse with the human parked at the bottom. */
@@ -15,13 +19,69 @@ function ellipse(index: number, total: number, rx: number, ry: number) {
   return { x: 50 + rx * Math.sin(angle), y: 50 - ry * Math.cos(angle) }
 }
 
-export function TableView({ game, onCashOut }: { game: GameApi; onCashOut: () => void }) {
+/**
+ * Where a seat's bet chips sit: between the seat and the middle, on a ring
+ * that tightens for the seats directly above and below the board and widens
+ * for the ones off to the sides. A single radius cannot clear both the seat
+ * plates at the top and bottom and the board across the middle.
+ */
+function betSpot(index: number, total: number) {
+  const angle = ((180 + (index * 360) / total) * Math.PI) / 180
+  const vertical = Math.abs(Math.cos(angle))
+  return ellipse(index, total, 19 + (1 - vertical) * 7, 21 + (1 - vertical) * 9)
+}
+
+export function TableView({
+  game, onCashOut, coach,
+}: {
+  game: GameApi
+  onCashOut: () => void
+  /** Present only in coach mode. */
+  coach?: CoachApi
+}) {
   const { table, version } = game
   const hand = table.hand
   void version // re-render key: the engine mutates in place
 
   const pot = hand ? potTotal(hand) : 0
   const bombDue = table.bombPotDue()
+  const seat = table.human.seat
+  const myTurn = hand?.phase === 'acting' && hand.actingSeat === seat
+
+  // Work out the advice only when the decision is actually ours; the
+  // simulation is cheap but not free.
+  const advice = useMemo<CoachAdvice | null>(() => {
+    if (!coach || !myTurn || !hand) return null
+    return advise(hand, table.seats, seat, Math.random, 1500)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coach, myTurn, version, hand, seat, table.seats])
+
+  // X-ray: every hand face up, with the odds a broadcast would put on screen.
+  const xrayOdds = useMemo<Map<number, EquityResult> | null>(() => {
+    if (!coach?.xray || !hand || hand.complete) return null
+    const live = livePlayers(hand).filter((p) => p.hole.length >= 2)
+    if (live.length < 2) return null
+    const results = showdownEquity(
+      live.map((p) => p.hole), hand.board, Math.random,
+      hand.board.length === 0 ? 1000 : 4000,
+    )
+    return new Map(live.map((p, i) => [p.seat, results[i]]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coach?.xray, version, hand])
+
+  // Count a coached hand once, when it finishes.
+  const countedRef = useRef(-1)
+  useEffect(() => {
+    if (!coach || !hand?.complete) return
+    if (countedRef.current === hand.handNumber) return
+    countedRef.current = hand.handNumber
+    coach.countHand()
+  }, [coach, hand, hand?.complete, hand?.handNumber])
+
+  const act = (action: Action) => {
+    if (coach && advice) coach.record(advice, action)
+    game.act(action)
+  }
 
   return (
     <div className="table-screen">
@@ -50,29 +110,44 @@ export function TableView({ game, onCashOut }: { game: GameApi; onCashOut: () =>
           <b className="num">{table.human.buyIns}</b>
           <span>Buy-ins</span>
         </div>
-        <button className="btn small ghost" onClick={onCashOut} style={{ alignSelf: 'center' }}>
-          Cash out
-        </button>
+        {coach ? (
+          <label className="stat xray-row" style={{ cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={coach.xray}
+              onChange={(e) => coach.setXray(e.target.checked)}
+            />
+            <span style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>
+              X-ray
+            </span>
+          </label>
+        ) : (
+          <button className="btn small ghost" onClick={onCashOut} style={{ alignSelf: 'center' }}>
+            Cash out
+          </button>
+        )}
       </div>
 
+      {hand?.isBombPot && (
+        <div className="banner bomb">
+          💣 Bomb Pot · {BOMB_POT_GAMES[hand.bombGame!].name} ·{' '}
+          {money(BOMB_POT_GAMES[hand.bombGame!].ante)} ante
+        </div>
+      )}
+      {hand?.dexter && (
+        <div className="banner dexter">
+          DEXTER! {table.seats[hand.dexter.seat].name} — everyone pays {money(hand.dexter.perPlayer)}
+        </div>
+      )}
+
+      <div className={`table-body ${coach ? 'with-coach' : ''}`}>
+      <div className="table-main">
       <div className="felt-wrap">
         <div className="felt">
           <div className="felt-logo">
             <b>BNOTW</b>
             <span>BEST NIGHT OF THE WEEK</span>
           </div>
-
-          {hand?.isBombPot && (
-            <div className="banner bomb">
-              💣 Bomb Pot · {BOMB_POT_GAMES[hand.bombGame!].name} ·{' '}
-              {money(BOMB_POT_GAMES[hand.bombGame!].ante)}
-            </div>
-          )}
-          {hand?.dexter && (
-            <div className="banner dexter">
-              DEXTER! {table.seats[hand.dexter.seat].name} — everyone pays {money(hand.dexter.perPlayer)}
-            </div>
-          )}
 
           <div className="middle">
             <div className="board">
@@ -97,20 +172,25 @@ export function TableView({ game, onCashOut }: { game: GameApi; onCashOut: () =>
             )}
           </div>
 
-          {table.seats.map((seat) => (
+          {table.seats.map((tableSeat) => (
             <SeatPlate
-              key={seat.id}
-              seat={seat}
+              key={tableSeat.id}
+              seat={tableSeat}
               hand={hand}
               total={table.seats.length}
-              isWinner={game.winners.includes(seat.seat)}
+              isWinner={game.winners.includes(tableSeat.seat)}
+              xray={Boolean(coach?.xray)}
+              odds={xrayOdds?.get(tableSeat.seat) ?? null}
             />
           ))}
         </div>
       </div>
 
-      <HandLog hand={hand} />
-      <Controls game={game} />
+      {!coach && <HandLog hand={hand} />}
+      </div>
+      {coach && <CoachPanel advice={advice} review={coach.lastReview} />}
+      </div>
+      <Controls game={game} act={act} />
     </div>
   )
 }
@@ -128,22 +208,23 @@ function bombCountdown(table: GameApi['table']): string {
 // ---------------------------------------------------------------------------
 
 function SeatPlate({
-  seat, hand, total, isWinner,
+  seat, hand, total, isWinner, xray, odds,
 }: {
   seat: SeatModel
   hand: HandState | null
   total: number
   isWinner: boolean
+  xray: boolean
+  odds: EquityResult | null
 }) {
   const player: HandPlayer | undefined = hand?.players[seat.seat]
   const pos = ellipse(seat.seat, total, 43, 39)
-  // Bets sit between the seat and the middle, far enough out to clear the board.
-  const bet = ellipse(seat.seat, total, 20, 27)
+  const bet = betSpot(seat.seat, total)
   // Nudged around the ellipse as well as inward so it never lands on the cards.
-  const button = ellipse(seat.seat + 0.34, total, 36, 33)
+  const button = ellipse(seat.seat + 0.38, total, 33, 31)
 
   const acting = hand?.actingSeat === seat.seat && hand?.phase === 'acting'
-  const showFace = seat.isHuman || player?.revealed
+  const showFace = seat.isHuman || player?.revealed || (xray && !player?.folded)
   const classes = [
     'seat',
     seat.isHuman ? 'you' : '',
@@ -166,13 +247,22 @@ function SeatPlate({
             : null}
         </div>
         <div className="seat-plate">
+          <div className="seat-face">
+            <Avatar
+              spec={seat.persona.avatar}
+              size={22}
+              alt=""
+              ring={acting ? 'var(--brass)' : '#0d1613'}
+            />
+          </div>
           <div className="seat-name">
-            {seat.name}
-            {player?.straddle ? ' ⚡' : ''}
+            <span className="seat-label">{seat.name}</span>
+            {player?.straddle ? <span>⚡</span> : null}
           </div>
           <div className="seat-stack num">
             {seat.sittingOut && !player ? 'Sitting out' : money(seat.stack)}
           </div>
+          {odds && <div className="seat-odds">{pct(odds.equity)} to win</div>}
           {handLabel && <div className="seat-hand">{handLabel}</div>}
           {player?.lastAction && !player.folded && (
             <div className="seat-action">{player.lastAction}</div>
@@ -214,7 +304,7 @@ function HandLog({ hand }: { hand: HandState | null }) {
 
 // ---------------------------------------------------------------------------
 
-function Controls({ game }: { game: GameApi }) {
+function Controls({ game, act }: { game: GameApi; act: (action: Action) => void }) {
   const { table } = game
   const hand = table.hand
   const seat = table.human.seat
@@ -321,7 +411,7 @@ function Controls({ game }: { game: GameApi }) {
   }
 
   if (hand.phase === 'acting' && hand.actingSeat === seat && player) {
-    return <ActionButtons game={game} />
+    return <ActionButtons game={game} act={act} />
   }
 
   return (
@@ -344,7 +434,7 @@ function Controls({ game }: { game: GameApi }) {
 
 // ---------------------------------------------------------------------------
 
-function ActionButtons({ game }: { game: GameApi }) {
+function ActionButtons({ game, act }: { game: GameApi; act: (action: Action) => void }) {
   const { table } = game
   const hand = table.hand!
   const seat = table.human.seat
@@ -379,7 +469,7 @@ function ActionButtons({ game }: { game: GameApi }) {
   quick.push({ label: 'All in', value: legal.maxRaiseTo })
 
   const submitRaise = () => {
-    game.act({ kind: legal.canBet ? 'bet' : 'raise', amount: clamp(amount, legal) })
+    act({ kind: legal.canBet ? 'bet' : 'raise', amount: clamp(amount, legal) })
     setRaising(false)
   }
 
@@ -423,15 +513,15 @@ function ActionButtons({ game }: { game: GameApi }) {
         <button
           className="btn fold"
           disabled={!legal.canFold}
-          onClick={() => game.act({ kind: 'fold' })}
+          onClick={() => act({ kind: 'fold' })}
         >
           Fold
         </button>
 
         {legal.canCheck ? (
-          <button className="btn check" onClick={() => game.act({ kind: 'check' })}>Check</button>
+          <button className="btn check" onClick={() => act({ kind: 'check' })}>Check</button>
         ) : (
-          <button className="btn call" onClick={() => game.act({ kind: 'call' })}>
+          <button className="btn call" onClick={() => act({ kind: 'call' })}>
             Call
             <small>{money(legal.callAmount)}{legal.callIsAllIn ? ' · all in' : ''}</small>
           </button>

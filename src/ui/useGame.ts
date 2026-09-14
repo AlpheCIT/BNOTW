@@ -40,7 +40,12 @@ export interface GameApi {
   winners: number[]
 }
 
-export function useGame(initial: Partial<TableSettings>): GameApi {
+/**
+ * @param active false parks the table: no bots act and no cards are dealt, so
+ *   a second table (coach mode) can sit idle without burning the phone's
+ *   battery or racing the one you are looking at.
+ */
+export function useGame(initial: Partial<TableSettings>, active = true): GameApi {
   const tableRef = useRef<Table | null>(null)
   if (!tableRef.current) tableRef.current = new Table(initial)
   const table = tableRef.current
@@ -69,15 +74,15 @@ export function useGame(initial: Partial<TableSettings>): GameApi {
     table.startHand()
   }, [table])
 
-  // Deal the first hand.
+  // Deal the first hand, but not until this table is the one on screen.
   useEffect(() => {
-    if (!table.hand) table.startHand()
-  }, [table])
+    if (active && !table.hand) table.startHand()
+  }, [table, active])
 
   // The main loop: whatever the engine is waiting on, either a bot answers it
   // or the table deals. Human decisions fall through and the loop idles.
   useEffect(() => {
-    if (paused || !hand) return
+    if (paused || !active || !hand) return
     let timer: ReturnType<typeof setTimeout> | undefined
 
     const run = () => {
@@ -131,7 +136,7 @@ export function useGame(initial: Partial<TableSettings>): GameApi {
 
     run()
     return () => { if (timer) clearTimeout(timer) }
-  }, [version, paused, hand, pace, rng, table, nextHand])
+  }, [version, paused, active, hand, pace, rng, table, nextHand])
 
   const act = useCallback((action: Action) => {
     if (table.hand?.actingSeat === table.human.seat) table.act(table.human.seat, action)

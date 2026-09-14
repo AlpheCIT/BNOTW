@@ -2,55 +2,102 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   BUY_IN_CASH, BUY_IN_CHIPS, HIGH_ROLLER_FEE, money, owesHighRollerFee, signedMoney,
 } from './engine/bnotw'
+import type { Persona } from './engine/persona'
 import type { BombPotTrigger, TableSettings } from './engine/table'
 import { blankNight, makeId, type GameNight, type NightPlayer } from './state/records'
-import { loadBook, loadSettings, saveBook, saveSettings, type RecordBook } from './state/storage'
+import {
+  loadBook, loadRoster, loadSettings, saveBook, saveRoster, saveSettings,
+  type RecordBook, type RosterState,
+} from './state/storage'
+import { CoachScorecard } from './ui/CoachPanel'
+import { PlayersView } from './ui/Players'
 import { RecordBookView } from './ui/RecordBook'
 import { RulesView } from './ui/RulesView'
 import { TableView } from './ui/TableView'
+import { useCoach } from './ui/useCoach'
 import { useGame, type Speed } from './ui/useGame'
 
-type Tab = 'table' | 'book' | 'rules'
+type Tab = 'table' | 'coach' | 'players' | 'book' | 'rules'
+
+const TABS: [Tab, string][] = [
+  ['table', 'Table'],
+  ['coach', 'Coach'],
+  ['players', 'Players'],
+  ['book', 'Book'],
+  ['rules', 'Rules'],
+]
 
 interface Preferences {
   playerName: string
-  botCount: number
   bombPotTrigger: BombPotTrigger
   bombPotHands: number
   bombPotMinutes: number
   bombPotGameChoice: TableSettings['bombPotGameChoice']
-  botStraddleChance: number
+  straddleMultiplier: number
   speed: Speed
 }
 
 const DEFAULT_PREFS: Preferences = {
   playerName: 'You',
-  botCount: 5,
   bombPotTrigger: 'hands',
   bombPotHands: 12,
   bombPotMinutes: 30,
   bombPotGameChoice: 'dealer',
-  botStraddleChance: 0.12,
+  straddleMultiplier: 1,
   speed: 'normal',
+}
+
+/** The personas actually sitting down, in the order they were seated. */
+function seatedPersonas(roster: RosterState): Persona[] {
+  return roster.seated
+    .map((id) => roster.players.find((p) => p.id === id))
+    .filter((p): p is Persona => Boolean(p))
 }
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('table')
   const [prefs, setPrefs] = useState<Preferences>(() => loadSettings(DEFAULT_PREFS))
   const [book, setBookState] = useState<RecordBook>(() => loadBook())
+  const [roster, setRosterState] = useState<RosterState>(() => loadRoster())
   const [openNightId, setOpenNightId] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showCashOut, setShowCashOut] = useState(false)
+  const [showCoachStats, setShowCoachStats] = useState(false)
 
-  const game = useGame(prefs)
+  const opponents = useMemo(() => seatedPersonas(roster), [roster])
+  const tableSettings = useMemo<Partial<TableSettings>>(
+    () => ({ ...prefs, opponents }),
+    [prefs, opponents],
+  )
+
+  // Two separate tables, so coaching never touches the session you are keeping
+  // records for. Only the one on screen ticks.
+  const game = useGame(tableSettings, tab === 'table')
+  const coachGame = useGame(tableSettings, tab === 'coach')
+  const coach = useCoach()
 
   useEffect(() => { saveSettings(prefs) }, [prefs])
-  useEffect(() => { game.setSpeed(prefs.speed) }, [prefs.speed, game])
+  useEffect(() => {
+    game.setSpeed(prefs.speed)
+    coachGame.setSpeed(prefs.speed)
+  }, [prefs.speed, game, coachGame])
 
   const setBook = useCallback((next: RecordBook) => {
     setBookState(next)
     saveBook(next)
   }, [])
+
+  const setRoster = useCallback((next: RosterState) => {
+    setRosterState(next)
+    saveRoster(next)
+  }, [])
+
+  /** Seat changes need a fresh deal; stacks from the old line-up mean nothing. */
+  const reseat = useCallback(() => {
+    const next = seatedPersonas(roster)
+    game.restart({ ...prefs, opponents: next })
+    coachGame.restart({ ...prefs, opponents: next })
+  }, [roster, prefs, game, coachGame])
 
   /** Turn the current session into a night in the Record Book. */
   const saveSessionToBook = useCallback(() => {
@@ -89,18 +136,11 @@ export default function App() {
           <span>Best Night Of The Week</span>
         </div>
         <div className="tabs" role="tablist">
-          {([['table', 'Table'], ['book', 'Record Book'], ['rules', 'Rules']] as const).map(
-            ([id, label]) => (
-              <button
-                key={id}
-                role="tab"
-                aria-selected={tab === id}
-                onClick={() => setTab(id)}
-              >
-                {label}
-              </button>
-            ),
-          )}
+          {TABS.map(([id, label]) => (
+            <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>
+              {label}
+            </button>
+          ))}
         </div>
         <button className="btn small ghost" onClick={() => setShowSettings(true)} aria-label="Settings">
           ⚙
@@ -108,7 +148,27 @@ export default function App() {
       </header>
 
       <main className="screen">
-        {tab === 'table' && <TableView game={game} onCashOut={() => setShowCashOut(true)} />}
+        {tab === 'table' && (
+          <TableView game={game} onCashOut={() => setShowCashOut(true)} />
+        )}
+        {tab === 'coach' && (
+          <>
+            <div className="coach-bar">
+              <span className="tag" style={{ color: '#6fd3e8' }}>Coach mode</span>
+              <span className="faint" style={{ fontSize: 11.5 }}>
+                A separate table. Nothing here reaches the Record Book.
+              </span>
+              <span className="spacer" />
+              <button className="btn small ghost" onClick={() => setShowCoachStats(true)}>
+                Your stats
+              </button>
+            </div>
+            <TableView game={coachGame} onCashOut={() => {}} coach={coach} />
+          </>
+        )}
+        {tab === 'players' && (
+          <PlayersView roster={roster} setRoster={setRoster} onSeatChange={reseat} />
+        )}
         {tab === 'book' && (
           <RecordBookView
             book={book}
@@ -127,7 +187,10 @@ export default function App() {
           onApply={(next, restart) => {
             setPrefs(next)
             setShowSettings(false)
-            if (restart) game.restart(next)
+            if (restart) {
+              game.restart({ ...next, opponents })
+              coachGame.restart({ ...next, opponents })
+            }
           }}
         />
       )}
@@ -138,6 +201,22 @@ export default function App() {
           onClose={() => setShowCashOut(false)}
           onSave={saveSessionToBook}
         />
+      )}
+
+      {showCoachStats && (
+        <div className="overlay" onClick={() => setShowCoachStats(false)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>Coach Scorecard</h2>
+            <p className="sub">
+              How often your decisions matched the recommendation, and what the gap
+              costs. Kept separately from your table records.
+            </p>
+            <CoachScorecard stats={coach.stats} onReset={coach.reset} />
+            <div className="row" style={{ marginTop: 12 }}>
+              <button className="btn primary" onClick={() => setShowCoachStats(false)}>Close</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
@@ -153,8 +232,7 @@ function SettingsDialog({
   onApply: (prefs: Preferences, restart: boolean) => void
 }) {
   const [draft, setDraft] = useState(prefs)
-  const needsRestart =
-    draft.botCount !== prefs.botCount || draft.playerName !== prefs.playerName
+  const needsRestart = draft.playerName !== prefs.playerName
 
   const set = <K extends keyof Preferences>(key: K, value: Preferences[K]) =>
     setDraft((d) => ({ ...d, [key]: value }))
@@ -163,7 +241,10 @@ function SettingsDialog({
     <div className="overlay" onClick={onClose}>
       <div className="dialog" onClick={(e) => e.stopPropagation()}>
         <h2>Table Settings</h2>
-        <p className="sub">The house rules are fixed. These are just how the app deals them.</p>
+        <p className="sub">
+          The house rules are fixed. These are just how the app deals them —
+          who sits down is up to the Players tab.
+        </p>
 
         <div className="field">
           <label htmlFor="name">Your name</label>
@@ -172,18 +253,6 @@ function SettingsDialog({
             value={draft.playerName}
             maxLength={18}
             onChange={(e) => set('playerName', e.target.value)}
-          />
-        </div>
-
-        <div className="field">
-          <label htmlFor="bots">Opponents — {draft.botCount}</label>
-          <input
-            id="bots"
-            type="range"
-            min={1}
-            max={8}
-            value={draft.botCount}
-            onChange={(e) => set('botCount', Number(e.target.value))}
           />
         </div>
 
@@ -217,11 +286,7 @@ function SettingsDialog({
           <div className="field">
             <label htmlFor="bombhands">Bomb pot every {draft.bombPotHands} hands</label>
             <input
-              id="bombhands"
-              type="range"
-              min={4}
-              max={40}
-              value={draft.bombPotHands}
+              id="bombhands" type="range" min={4} max={40} value={draft.bombPotHands}
               onChange={(e) => set('bombPotHands', Number(e.target.value))}
             />
           </div>
@@ -231,12 +296,7 @@ function SettingsDialog({
           <div className="field">
             <label htmlFor="bombmins">Bomb pot every {draft.bombPotMinutes} minutes</label>
             <input
-              id="bombmins"
-              type="range"
-              min={5}
-              max={60}
-              step={5}
-              value={draft.bombPotMinutes}
+              id="bombmins" type="range" min={5} max={60} step={5} value={draft.bombPotMinutes}
               onChange={(e) => set('bombPotMinutes', Number(e.target.value))}
             />
           </div>
@@ -257,20 +317,20 @@ function SettingsDialog({
 
         <div className="field">
           <label htmlFor="straddle">
-            How often opponents straddle — {Math.round(draft.botStraddleChance * 100)}%
+            Straddle appetite — {Math.round(draft.straddleMultiplier * 100)}% of normal
           </label>
           <input
-            id="straddle"
-            type="range"
-            min={0}
-            max={60}
-            value={Math.round(draft.botStraddleChance * 100)}
-            onChange={(e) => set('botStraddleChance', Number(e.target.value) / 100)}
+            id="straddle" type="range" min={0} max={200} step={10}
+            value={Math.round(draft.straddleMultiplier * 100)}
+            onChange={(e) => set('straddleMultiplier', Number(e.target.value) / 100)}
           />
+          <p className="sub" style={{ marginTop: 4 }}>
+            Scales every player's own straddle tendency. Set it to zero to turn straddles off.
+          </p>
         </div>
 
         {needsRestart && (
-          <div className="warn">Changing your name or the table size starts a fresh session.</div>
+          <div className="warn">Changing your name starts a fresh session.</div>
         )}
 
         <div className="row" style={{ marginTop: 12 }}>
@@ -279,10 +339,7 @@ function SettingsDialog({
           </button>
           <button className="btn ghost" onClick={onClose}>Cancel</button>
           <span className="spacer" />
-          <button
-            className="btn small danger"
-            onClick={() => onApply(draft, true)}
-          >
+          <button className="btn small danger" onClick={() => onApply(draft, true)}>
             New session
           </button>
         </div>

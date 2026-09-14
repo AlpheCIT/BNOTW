@@ -32,20 +32,41 @@ export interface BotProfile {
   gamble: number
   /** Monte Carlo trials; better players get a sharper read. */
   trials: number
-  /** How far their read of their own hand can be off, either way. */
+  /** How far their read of their own hand wobbles, either way. */
   noise: number
+  /** How far they overrate their own hand. This is the expensive one. */
+  optimism: number
+  /** 0..1 — the share of the field they actually account for. */
+  fieldAwareness: number
   /** 0..1 — how much they adjust for position. */
   positionAware: number
 }
 
-const TRIALS_BY_SKILL = [60, 110, 180, 260, 340]
-const NOISE_BY_SKILL = [0.16, 0.11, 0.07, 0.04, 0.015]
-const POSITION_BY_SKILL = [0, 0.25, 0.5, 0.8, 1]
+/**
+ * The skill ladder, indexed 0-4 for skill 1-5. Exported and mutable so the
+ * calibration probe can re-measure the table with different values.
+ */
+export const TRIALS_BY_SKILL = [60, 110, 180, 260, 340]
+export const NOISE_BY_SKILL = [0.08, 0.06, 0.04, 0.025, 0.012]
+/**
+ * Calibrated by duplicate-scored self-play rather than guessed. Below about
+ * 0.2 the bias is too small to move money at any sample size worth running;
+ * most of the damage sits at the bottom of the ladder, which is also how it
+ * works in life — the gap between a novice and an average player is far wider
+ * than the gap between average and expert.
+ */
+export const OPTIMISM_BY_SKILL = [0.3, 0.18, 0.09, 0.03, 0]
+export const FIELD_BY_SKILL = [0.35, 0.5, 0.7, 0.9, 1]
+export const POSITION_BY_SKILL = [0, 0.25, 0.5, 0.8, 1]
 
 /**
- * Skill controls *accuracy*, tendencies control *taste*. A beginner and a
- * shark can want the same things and still play completely differently,
- * because the beginner keeps misreading how good their hand is.
+ * Skill controls *accuracy*, tendencies control *taste*.
+ *
+ * Crucially, a weak player is not a player who decides at random — noise that
+ * cuts both ways mostly cancels out and costs almost nothing. A weak player is
+ * one whose errors point the same way every time: they overrate their own hand,
+ * and they price a six-way pot as though only one or two opponents could beat
+ * them. Those two biases are what actually moves money across the table.
  */
 export function profileOf(persona: Persona): BotProfile {
   const { looseness, aggression, bluffing, chasing, gamble } = persona.tendencies
@@ -58,6 +79,8 @@ export function profileOf(persona: Persona): BotProfile {
     gamble: gamble / 100,
     trials: TRIALS_BY_SKILL[i],
     noise: NOISE_BY_SKILL[i],
+    optimism: OPTIMISM_BY_SKILL[i],
+    fieldAwareness: FIELD_BY_SKILL[i],
     positionAware: POSITION_BY_SKILL[i],
   }
 }
@@ -167,9 +190,10 @@ function positionFactor(state: HandState, seat: number): number {
   return i / (state.order.length - 1)
 }
 
-/** Nudge a read by however much this player tends to misjudge a hand. */
-function misread(value: number, noise: number, rng: Rng): number {
-  return Math.max(0.01, Math.min(0.99, value + (rng() * 2 - 1) * noise))
+/** Shift a read by this player's wobble and their standing optimism. */
+function misread(value: number, style: BotProfile, rng: Rng): number {
+  const shifted = value + (rng() * 2 - 1) * style.noise + style.optimism
+  return Math.max(0.01, Math.min(0.99, shifted))
 }
 
 export function decideAction({ state, seats, seat, rng, trials }: BotContext): Action {
@@ -183,19 +207,27 @@ export function decideAction({ state, seats, seat, rng, trials }: BotContext): A
   }
 
   const opponents = Math.max(1, livePlayers(state).length - 1)
+  // A beginner plays a six-way pot as though it were three-handed.
+  const perceived = Math.max(1, Math.round(opponents * style.fieldAwareness))
   const stack = seats[seat].stack
   const toCall = legal.callAmount
   const potOdds = toCall > 0 ? toCall / (pot + toCall) : 0
-  const raw = equity(p.hole, state.board, opponents, trials ?? style.trials, rng)
+  const raw = equity(p.hole, state.board, perceived, trials ?? style.trials, rng)
 
   // The simulation deals opponents *random* hands, but a player who is still
   // putting money in has better than a random hand. Discount the estimate
   // before pricing a call, or the bots call down with anything.
-  const strength = misread(toCall > 0 ? raw * RANGE_DISCOUNT : raw, style.noise, rng)
+  const discounted = toCall > 0 ? raw * RANGE_DISCOUNT : raw
+  const strength = misread(discounted, style, rng)
+  // Optimism is what makes a weak player pay you off street by street, but
+  // even a beginner thinks twice about their whole stack. The gate below uses
+  // the un-inflated read so bad players bleed chips rather than shovelling
+  // them in, which is both truer to life and less chaotic at the table.
+  const sober = Math.max(0.01, Math.min(0.99, discounted + (rng() * 2 - 1) * style.noise))
 
   // --- nothing to call: check, or take a stab at it ------------------------
   if (legal.canCheck) {
-    const valueBar = 0.55 + 0.05 * Math.min(opponents, 4)
+    const valueBar = 0.55 + 0.05 * Math.min(perceived, 4)
     const wantsToBet =
       (strength > valueBar && rng() < style.aggression) ||
       (strength < 0.3 && rng() < style.bluff)
@@ -211,7 +243,7 @@ export function decideAction({ state, seats, seat, rng, trials }: BotContext): A
   const stackRisk = toCall / Math.max(1, toCall + stack)
   const priced = strength >= potOdds * style.callTightness
   const stackBar = (0.62 + stackRisk * 0.2) * (1 - style.gamble * 0.4)
-  const worthTheStack = stackRisk < 0.4 || strength > stackBar
+  const worthTheStack = stackRisk < 0.4 || sober > stackBar
 
   if (!priced || !worthTheStack) {
     // Occasionally bluff-raise instead of folding, but never for the stack.
@@ -231,7 +263,7 @@ export function decideAction({ state, seats, seat, rng, trials }: BotContext): A
   if (strength > raiseBar && legal.canRaise && rng() < style.aggression) {
     const fraction = strength > 0.88 ? 1.0 : 0.6
     const amount = state.currentBet + Math.max(BIG_BLIND, pot * fraction)
-    return { kind: 'raise', amount: sizeBet(amount, strength, stack, style.gamble, legal, rng) }
+    return { kind: 'raise', amount: sizeBet(amount, sober, stack, style.gamble, legal, rng) }
   }
 
   return { kind: 'call' }
@@ -273,8 +305,8 @@ function preflopDecision(
   position: number,
   rng: Rng,
 ): Action {
-  // A weak player misjudges a starting hand just as they misjudge a flop.
-  const chen = chenScore(hole) + (rng() * 2 - 1) * style.noise * 18
+  // A weak player overrates a starting hand just as they overrate a flop.
+  const chen = chenScore(hole) + style.optimism * 22 + (rng() * 2 - 1) * style.noise * 12
   // A straddle raises the price of the hand for everybody, so measure the bet
   // against the largest forced blind rather than always against the big blind.
   const forced = Math.max(BIG_BLIND, ...state.straddles.map((s) => s.amount))

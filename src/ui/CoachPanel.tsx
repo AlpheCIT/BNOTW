@@ -7,12 +7,14 @@ import type { NarratorApi } from './useNarrator'
 
 /** The advice panel shown while it is your turn in coach mode. */
 export function CoachPanel({
-  advice, review, narrator, position,
+  advice, review, narrator, position, pending = false,
 }: {
   advice: CoachAdvice | null
   review: DecisionReview | null
   narrator?: NarratorApi
   position?: string
+  /** The spot is yours and the numbers are still being worked out. */
+  pending?: boolean
 }) {
   if (!advice) {
     return (
@@ -20,7 +22,9 @@ export function CoachPanel({
         <h3>Coach</h3>
         {review && <div className={`feedback ${review.tone}`}>{review.message}</div>}
         <p className="sub" style={{ margin: 0 }}>
-          Waiting for the action. Numbers appear when the decision is yours.
+          {pending
+            ? 'Working this one out…'
+            : 'Waiting for the action. Numbers appear when the decision is yours.'}
         </p>
       </div>
     )

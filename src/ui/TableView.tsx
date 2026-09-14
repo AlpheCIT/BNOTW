@@ -125,6 +125,25 @@ export function TableView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hand?.handNumber, hand?.street, hand?.actingSeat])
 
+  /**
+   * Drop the feedback as soon as a new decision is put in front of you.
+   *
+   * It describes the action you just took, and it is meant to be read while
+   * the table responds to it. Left up, it sits directly above the advice for
+   * the *next* decision and reads as though it described that one — a verdict
+   * about last hand's fold, over this hand's cards, quoting percentages that
+   * match neither.
+   *
+   * Keyed on the edge into your turn rather than on `myTurn` being true: the
+   * action that produces the feedback happens while it is still your turn, and
+   * clearing on the level would wipe it in the same breath it was written.
+   */
+  const wasMyTurn = useRef(false)
+  useEffect(() => {
+    if (myTurn && !wasMyTurn.current) coach?.clearReview()
+    wasMyTurn.current = myTurn
+  }, [myTurn, coach])
+
   const act = (action: Action) => {
     // In coach mode the advice is already on screen. In normal play it is
     // worked out here instead, so tracking costs nothing until the moment a

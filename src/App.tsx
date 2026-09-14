@@ -90,14 +90,15 @@ export default function App() {
 
   // Two separate tables, so coaching never touches the session you are keeping
   // records for. Only the one on screen ticks.
-  // Only the table you keep records for is remembered across a reload; coach
-  // mode is explicitly not a night and must never write over one.
   const guardOptions = useMemo(
     () => ({ enabled: prefs.confirmBigActions }),
     [prefs.confirmBigActions],
   )
-  const game = useGame(tableSettings, tab === 'table', true)
-  const coachGame = useGame(tableSettings, tab === 'coach')
+  // Both are remembered across a reload, each under its own mode. A coach
+  // session is still not a night — it never reaches the Record Book — but
+  // losing one to a reclaimed tab is as annoying as losing a real one.
+  const game = useGame(tableSettings, tab === 'table', 'table')
+  const coachGame = useGame(tableSettings, tab === 'coach', 'coach')
   const coach = useCoach()
   const tracker = useTracker()
   const update = useAppUpdate()
@@ -216,9 +217,17 @@ export default function App() {
             <div className="coach-bar">
               <span className="tag" style={{ color: '#6fd3e8' }}>Coach mode</span>
               <span className="faint" style={{ fontSize: 11.5 }}>
-                A separate table. Nothing here reaches the Record Book.
+                A separate table, kept between visits. Nothing here reaches the
+                Record Book.
               </span>
               <span className="spacer" />
+              {/* The session persists now, so there has to be a way out of it. */}
+              <button
+                className="btn small ghost"
+                onClick={() => coachGame.restart({ ...prefs, opponents })}
+              >
+                Fresh table
+              </button>
               <button className="btn small ghost" onClick={() => setShowCoachStats(true)}>
                 Your stats
               </button>

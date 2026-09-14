@@ -8,6 +8,7 @@ import { mulberry32 } from '../engine/cards'
 import { decideAction, decideDiscard } from '../engine/ai'
 import { Table, type TableSettings } from '../engine/table'
 import { loadTableSnapshot, saveTableSnapshot } from '../state/storage'
+import type { PlayMode } from '../engine/playerStats'
 import type { Action } from '../engine/types'
 
 export type Speed = 'fast' | 'normal' | 'slow'
@@ -45,19 +46,21 @@ export interface GameApi {
  * @param active false parks the table: no bots act and no cards are dealt, so
  *   a second table (coach mode) can sit idle without burning the phone's
  *   battery or racing the one you are looking at.
- * @param persist true remembers the session across a reload or the browser
- *   reclaiming the tab. Only the table you keep records for wants this; coach
- *   mode is explicitly not a night and must never write over one.
+ * @param persist which session this is, or false to remember nothing. Each
+ *   mode keeps its own: losing a coach session to a reclaimed tab is as
+ *   annoying as losing a real one, but it is not a night and must never be
+ *   able to turn into one. The snapshot carries its own mode and a restore
+ *   refuses a mismatch, so the two cannot be crossed even by accident.
  */
 export function useGame(
   initial: Partial<TableSettings>,
   active = true,
-  persist = false,
+  persist: PlayMode | false = false,
 ): GameApi {
   const tableRef = useRef<Table | null>(null)
   if (!tableRef.current) {
     const table = new Table(initial)
-    if (persist) table.restore(loadTableSnapshot())
+    if (persist) table.restore(loadTableSnapshot(persist), persist)
     tableRef.current = table
   }
   const table = tableRef.current
@@ -68,7 +71,7 @@ export function useGame(
    * one would record stacks that the hand is about to change.
    */
   const remember = useCallback(() => {
-    if (persist) saveTableSnapshot(table.snapshot())
+    if (persist) saveTableSnapshot(persist, table.snapshot(persist))
   }, [persist, table])
 
   const version = useSyncExternalStore(table.subscribe, table.getVersion, table.getVersion)

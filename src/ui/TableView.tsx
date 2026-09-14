@@ -3,6 +3,7 @@ import {
   BIG_BLIND, BOMB_POT_GAMES, CHIP_INCREMENT, NAMED_BETS, SMALL_BLIND,
   money, namedBetFor, toChipIncrement,
 } from '../engine/bnotw'
+import { cardCode } from '../engine/cards'
 import { shortHand } from '../engine/handEval'
 import { advise, pct, showdownEquity, type CoachAdvice, type EquityResult } from '../engine/coach'
 import { bestHand, legalActions, livePlayers, potTotal } from '../engine/hand'
@@ -77,9 +78,25 @@ export function TableView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [coach, myTurn, version, hand, seat, table.seats])
 
+  /**
+   * What the X-ray odds actually depend on: who is still in, holding what, and
+   * what is on the board. Not `version` — that ticks on every bet and check,
+   * and none of those change anyone's chance of winning. Keyed on `version`
+   * this ran a Monte Carlo per bot action: on a phone, a quarter-second of
+   * blocked main thread twenty-odd times a hand, for a number that had not
+   * moved.
+   */
+  const xrayKey = useMemo(() => {
+    if (!coach?.xray || !hand || hand.complete) return null
+    const live = livePlayers(hand).filter((p) => p.hole.length >= 2)
+    if (live.length < 2) return null
+    return `${live.map((p) => `${p.seat}${p.hole.map(cardCode).join('')}`).join(',')}/${
+      hand.board.map(cardCode).join('')}`
+  }, [coach?.xray, hand, version])
+
   // X-ray: every hand face up, with the odds a broadcast would put on screen.
   const xrayOdds = useMemo<Map<number, EquityResult> | null>(() => {
-    if (!coach?.xray || !hand || hand.complete) return null
+    if (!xrayKey || !hand) return null
     const live = livePlayers(hand).filter((p) => p.hole.length >= 2)
     if (live.length < 2) return null
     const results = showdownEquity(
@@ -88,7 +105,7 @@ export function TableView({
     )
     return new Map(live.map((p, i) => [p.seat, results[i]]))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coach?.xray, version, hand])
+  }, [xrayKey])
 
   // Wrap a finished hand up exactly once. Keyed on the hand itself, because a
   // fresh session restarts the numbering from one.

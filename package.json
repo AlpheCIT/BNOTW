@@ -1,0 +1,27 @@
+{
+  "name": "bnotw",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "BNOTW - Best Night Of The Week. Texas Hold'em with BNOTW house rules, plus a running record book.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false --pretty"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.9",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^7.1.0",
+    "vitest": "^3.2.4"
+  }
+}

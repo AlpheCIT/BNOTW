@@ -14,7 +14,8 @@ import {
   dexterPayPerPlayer, money, namedBetFor, type BombPotGame,
 } from './bnotw'
 import type {
-  Action, HandPlayer, HandState, LogEntry, Phase, Pot, PotAward, Seat, Street, Variant,
+  Action, HandPlayer, HandState, JournalEntry, LogEntry, Phase, Pot, PotAward, Seat,
+  Street, Variant,
 } from './types'
 
 const STREET_ORDER: Street[] = ['preflop', 'flop', 'turn', 'river', 'showdown']
@@ -53,6 +54,25 @@ function seatsAfter(state: HandState, afterSeat: number): number[] {
 
 function log(state: HandState, text: string, tone: LogEntry['tone'] = 'normal') {
   state.log.push({ id: state.log.length, street: state.street, text, tone })
+}
+
+/** Record a chip movement in the structured history. Call it after the commit. */
+function record(
+  state: HandState,
+  seat: number,
+  kind: JournalEntry['kind'],
+  amount: number,
+  extra: Partial<JournalEntry> = {},
+) {
+  state.journal.push({
+    street: state.street,
+    seat,
+    kind,
+    amount,
+    to: state.players[seat]?.committedRound ?? 0,
+    pot: potTotal(state),
+    ...extra,
+  })
 }
 
 function name(seats: Seat[], seat: number): string {
@@ -138,6 +158,7 @@ export function createHand(setup: HandSetup): HandState {
     dexter: null,
     suitedFlopTriggered: false,
     log: [],
+    journal: [],
     complete: false,
   }
 
@@ -209,8 +230,10 @@ function dealHoldem(state: HandState, seats: Seat[], shoe: Shoe): void {
 
   const sb = state.players[sbSeat]
   const bb = state.players[bbSeat]
-  commit(seats, sb, SMALL_BLIND)
-  commit(seats, bb, BIG_BLIND)
+  const sbPaid = commit(seats, sb, SMALL_BLIND)
+  record(state, sbSeat, 'blind', sbPaid, { allIn: sb.allIn })
+  const bbPaid = commit(seats, bb, BIG_BLIND)
+  record(state, bbSeat, 'blind', bbPaid, { allIn: bb.allIn })
   log(state, `${name(seats, sbSeat)} posts the small blind ${money(sb.committedRound)}`)
   log(state, `${name(seats, bbSeat)} posts the big blind ${money(bb.committedRound)}`)
 
@@ -222,8 +245,9 @@ function dealHoldem(state: HandState, seats: Seat[], shoe: Shoe): void {
   // previous forced bet and takes over as the last live blind.
   for (const straddle of state.straddles) {
     const p = state.players[straddle.seat]
-    commit(seats, p, straddle.amount)
+    const paid = commit(seats, p, straddle.amount)
     p.straddle = p.committedRound
+    record(state, straddle.seat, 'straddle', paid, { allIn: p.allIn })
     const label = state.straddles.indexOf(straddle) === 0 ? 'straddles' : 're-straddles'
     log(state, `${name(seats, straddle.seat)} ${label} ${money(p.committedRound)}`, 'bnotw')
     if (p.committedRound > state.currentBet) {
@@ -252,7 +276,8 @@ function dealBombPot(state: HandState, seats: Seat[], shoe: Shoe): void {
 
   for (const seat of state.order) {
     const p = state.players[seat]
-    commit(seats, p, game.ante)
+    const paid = commit(seats, p, game.ante)
+    record(state, seat, 'ante', paid, { allIn: p.allIn })
   }
   for (const seat of state.order) {
     state.players[seat].hole = shoe.drawMany(game.holeCards)
@@ -285,6 +310,7 @@ export function applyDiscard(state: HandState, seat: number, cardIndex: number):
   if (cardIndex < 0 || cardIndex >= p.hole.length) throw new Error('Bad discard index')
 
   p.discarded = p.hole.splice(cardIndex, 1)[0]
+  record(state, seat, 'discard', 0, { card: cardCode(p.discarded) })
   state.pendingDiscards = state.pendingDiscards.filter((s) => s !== seat)
 
   if (state.pendingDiscards.length === 0) {
@@ -398,6 +424,7 @@ export function applyAction(
   const p = state.players[seat]
   const legal = legalActions(state, seats, seat)
   const who = name(seats, seat)
+  const before = p.committedRound
 
   switch (action.kind) {
     case 'fold': {
@@ -468,6 +495,8 @@ export function applyAction(
       break
     }
   }
+
+  record(state, seat, action.kind, p.committedRound - before, { allIn: p.allIn })
 
   if (livePlayers(state).length <= 1) {
     closeBettingRound(state)

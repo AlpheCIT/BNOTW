@@ -17,8 +17,16 @@ import { money } from './bnotw'
  * exact.
  */
 
+/**
+ * Yield to the event loop. These sessions run tens of seconds of solid CPU in
+ * one test, which starves Vitest's worker RPC and makes the run report an
+ * unhandled "Timeout calling onTaskUpdate" alongside passing tests. Pausing
+ * occasionally costs nothing and keeps the reporter fed.
+ */
+const breathe = () => new Promise((resolve) => setTimeout(resolve, 0))
+
 /** Net result of seat 1 and seat 2 over `hands`, from a fixed deck seed. */
-function session(seed: number, hands: number, skills: [Skill, Skill]): [number, number] {
+async function session(seed: number, hands: number, skills: [Skill, Skill]): Promise<[number, number]> {
   const style = archetype('grinder')!.tendencies
   const make = (name: string, skill: Skill): Persona => ({
     ...personaFromArchetype(name, 'grinder', name.toLowerCase()),
@@ -41,6 +49,7 @@ function session(seed: number, hands: number, skills: [Skill, Skill]): [number, 
   const net: [number, number] = [0, 0]
 
   for (let i = 0; i < hands; i++) {
+    if (i % 50 === 0) await breathe()
     for (const s of table.seats.slice(1)) if (s.stack < 200) table.rebuy(s.seat)
     const before = [table.seats[1].stack, table.seats[2].stack]
     const hand = table.startHand()
@@ -70,19 +79,20 @@ function session(seed: number, hands: number, skills: [Skill, Skill]): [number, 
 }
 
 /** The stronger profile's total across both halves, in cents and in bb/100. */
-function duplicate(seeds: number[], hands: number, strong: Skill, weak: Skill) {
-  const perSeed = seeds.map((seed) => {
-    const [a] = session(seed, hands, [strong, weak])
-    const [, b] = session(seed, hands, [weak, strong])
-    return a + b
-  })
+async function duplicate(seeds: number[], hands: number, strong: Skill, weak: Skill) {
+  const perSeed: number[] = []
+  for (const seed of seeds) {
+    const [a] = await session(seed, hands, [strong, weak])
+    const [, b] = await session(seed, hands, [weak, strong])
+    perSeed.push(a + b)
+  }
   const total = perSeed.reduce((x, y) => x + y, 0)
   return { total, perSeed, bbPer100: (total / (seeds.length * hands * 2) / 50) * 100 }
 }
 
 describe('duplicate scoring', () => {
-  it('cancels to exactly nothing when both seats play identically', () => {
-    const r = duplicate([11, 23], 200, 3, 3)
+  it('cancels to exactly nothing when both seats play identically', async () => {
+    const r = await duplicate([11, 23], 200, 3, 3)
     // Same profile in both seats means the two halves are mirror images, so
     // anything other than zero here is a leak in the measurement itself, not
     // a result. This caught the auto-rebuy landing in the books as profit.
@@ -91,8 +101,8 @@ describe('duplicate scoring', () => {
 })
 
 describe('the skill dial moves money', () => {
-  it('has a solid player beat a beginner over a long session', () => {
-    const r = duplicate([11, 23, 37], 250, 3, 1)
+  it('has a solid player beat a beginner over a long session', async () => {
+    const r = await duplicate([11, 23, 37], 250, 3, 1)
     // Measured at roughly +33 bb/100 over 3,000 hands; the floor here is set
     // well below that so an unrelated change to the bots does not fail it.
     expect(

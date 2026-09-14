@@ -17,6 +17,7 @@
  */
 
 import { BIG_BLIND } from './bnotw'
+import type { HandReplay } from './replay'
 import type { ActionKind, Street } from './types'
 
 export type PlayMode = 'table' | 'coach'
@@ -60,6 +61,11 @@ export interface HandRecord {
   dexterHeld: boolean
   dexterWon: boolean
   decisions: DecisionRecord[]
+  /**
+   * Everything needed to replay the hand. Dropped from older records to keep
+   * the history storable — the counters never depend on it.
+   */
+  replay?: HandReplay
 }
 
 /**

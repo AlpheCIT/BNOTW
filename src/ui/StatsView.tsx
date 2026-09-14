@@ -5,11 +5,24 @@ import {
   PROVISIONAL_DECISIONS, RATING_BASE,
   type Tendency,
 } from '../engine/playerStats'
+import type { HandRecord } from '../engine/playerStats'
+import { ReplayView } from './ReplayView'
 import type { TrackerApi } from './useTracker'
 
 export function StatsView({ tracker }: { tracker: TrackerApi }) {
   const { totals } = tracker
   const [confirmReset, setConfirmReset] = useState(false)
+  const [replaying, setReplaying] = useState<HandRecord | null>(null)
+
+  /** The hands that cost the most, worst first — the ones worth looking at. */
+  const worst = useMemo(
+    () => tracker.recent
+      .filter((h) => h.replay && h.decisions.some((d) => d.evLost > 0))
+      .map((h) => ({ hand: h, lost: h.decisions.reduce((sum, d) => sum + d.evLost, 0) }))
+      .sort((a, b) => b.lost - a.lost)
+      .slice(0, 6),
+    [tracker.recent],
+  )
 
   const score = useMemo(() => rating(totals), [totals])
   const results = useMemo(() => winRate(totals), [totals])
@@ -197,23 +210,51 @@ export function StatsView({ tracker }: { tracker: TrackerApi }) {
         </div>
       )}
 
+      {worst.length > 0 && (
+        <div className="panel">
+          <h2>Worth a Second Look</h2>
+          <p className="sub">
+            The hands that cost you the most against the coach's line. Replaying one
+            shows every hand face up and the real odds at each street.
+          </p>
+          {worst.map(({ hand, lost }) => (
+            <button
+              key={`${hand.mode}-${hand.handNumber}-${hand.at}`}
+              className="worst-row"
+              onClick={() => setReplaying(hand)}
+            >
+              <span className="num">{hand.hole}</span>
+              <span className="faint">#{hand.handNumber}</span>
+              <span className="spacer" />
+              <span className="neg num">-{money(lost)}</span>
+              <span className="faint">replay ›</span>
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="panel">
         <h2>Recent Hands</h2>
         <p className="sub">
-          The last {tracker.recent.length} hands. The totals above cover everything
-          ever played, not just these.
+          The last {tracker.recent.length} hands — tap one to replay it. The totals
+          above cover everything ever played, not just these. Older hands keep their
+          row but drop the replay, so the history stays storable.
         </p>
         <div className="tablewrap">
           <table className="grid" style={{ minWidth: 520 }}>
             <thead>
               <tr>
                 <th>Hand</th><th>Hole</th><th>Saw flop</th><th>Showdown</th>
-                <th>Decisions</th><th>EV lost</th><th>Net</th>
+                <th>Decisions</th><th>EV lost</th><th>Net</th><th />
               </tr>
             </thead>
             <tbody>
               {tracker.recent.slice(0, 40).map((hand, i) => (
-                <tr key={`${hand.mode}-${hand.handNumber}-${i}`}>
+                <tr
+                  key={`${hand.mode}-${hand.handNumber}-${i}`}
+                  className={hand.replay ? 'clickable' : ''}
+                  onClick={() => hand.replay && setReplaying(hand)}
+                >
                   <td>
                     #{hand.handNumber}
                     {hand.bomb && <span className="tag bomb" style={{ marginLeft: 6 }}>Bomb</span>}
@@ -227,6 +268,7 @@ export function StatsView({ tracker }: { tracker: TrackerApi }) {
                     {money(hand.decisions.reduce((s, d) => s + d.evLost, 0))}
                   </td>
                   <td className={hand.net >= 0 ? 'pos' : 'neg'}>{signedMoney(hand.net)}</td>
+                  <td className="faint">{hand.replay ? '›' : ''}</td>
                 </tr>
               ))}
             </tbody>
@@ -255,6 +297,14 @@ export function StatsView({ tracker }: { tracker: TrackerApi }) {
           )}
         </div>
       </div>
+
+      {replaying?.replay && (
+        <ReplayView
+          replay={replaying.replay}
+          decisions={replaying.decisions}
+          onClose={() => setReplaying(null)}
+        />
+      )}
     </div>
   )
 }

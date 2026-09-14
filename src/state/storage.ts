@@ -208,17 +208,25 @@ export function loadPlayerLog(): PlayerLog {
   }
 }
 
+/**
+ * Out of quota, give up the most expensive thing first: replays, then the hand
+ * list, then everything but the totals — which are the only part that cannot
+ * be rebuilt by playing more.
+ */
 export function savePlayerLog(log: PlayerLog): void {
   if (typeof localStorage === 'undefined') return
-  try {
-    localStorage.setItem(PLAYER_KEY, JSON.stringify(log))
-  } catch {
-    // Out of quota: drop the hand list and keep the totals, which are the part
-    // that cannot be rebuilt.
+  const attempts: PlayerLog[] = [
+    log,
+    { ...log, hands: log.hands.map((h) => ({ ...h, replay: undefined })) },
+    { ...log, hands: log.hands.slice(0, 50).map((h) => ({ ...h, replay: undefined })) },
+    { ...log, hands: [] },
+  ]
+  for (const attempt of attempts) {
     try {
-      localStorage.setItem(PLAYER_KEY, JSON.stringify({ ...log, hands: [] }))
+      localStorage.setItem(PLAYER_KEY, JSON.stringify(attempt))
+      return
     } catch {
-      // Nothing more to be done; the session still works.
+      // Try the next, smaller shape.
     }
   }
 }

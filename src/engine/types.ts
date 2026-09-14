@@ -94,6 +94,28 @@ export interface DexterClaim {
   hole: Card[]
 }
 
+/**
+ * One recorded event in the hand — every chip that moved and why.
+ *
+ * The log is prose for the player to read; this is the structured record the
+ * replay is rebuilt from, so it has to be complete rather than readable.
+ */
+export interface JournalEntry {
+  street: Street
+  seat: number
+  kind: ActionKind | 'blind' | 'straddle' | 'ante' | 'discard'
+  /** Chips this event put into the pot. */
+  amount: number
+  /** What the player is at on this street once the event is done. */
+  to: number
+  /** Total in the middle afterwards. */
+  pot: number
+  /** The pitched card, for a Crazy Pineapple discard. */
+  card?: string
+  /** Left the player with nothing behind. */
+  allIn?: boolean
+}
+
 export interface LogEntry {
   id: number
   street: Street | 'setup' | 'result'
@@ -136,5 +158,7 @@ export interface HandState {
   /** True once the flop came monotone in a regular hand. */
   suitedFlopTriggered: boolean
   log: LogEntry[]
+  /** Structured history, for replaying the hand afterwards. */
+  journal: JournalEntry[]
   complete: boolean
 }

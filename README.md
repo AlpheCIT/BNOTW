@@ -247,6 +247,24 @@ choice rather than a mistake so long as you know you are making it.
 Alongside them is a plain-language read on what to work on: limping too much,
 calling more than you bet, taking too many flops to showdown, and so on.
 
+### Replay: what actually happened
+
+Any recent hand can be stepped through from the Recent Hands table, or from
+**Worth a Second Look** — the hands that cost the most against the coach's line,
+worst first.
+
+A replay shows the board filling in, the chips going in, and **every hand face
+up**, so the equity shown is not the coach's estimate against an assumed range —
+it is the true number, counted exactly wherever the runout is small enough to
+enumerate. Your own decisions are annotated with what the coach would have done
+and what the difference cost. In a Crazy Pineapple pot the third card stays
+hidden until the moment it was actually pitched.
+
+Replays are stored with the hand, and are the largest thing the app keeps. The
+most recent 150 hands keep theirs; older hands keep their summary row and drop
+the replay, so the history stays storable and the running totals never depend
+on it.
+
 ### Rating: how well you do it
 
 Here is the thing that makes a poker rating hard, and it is worth being blunt
@@ -322,6 +340,7 @@ src/
     bnotw.ts       house-rule constants and money helpers
     types.ts       game state types
     hand.ts        one hand: posting, dealing, betting, side pots, showdown
+    replay.ts      flattening a finished hand and stepping back through it
     table.ts       the session: stacks, button, bomb-pot scheduling, Dexter ladder
     ai.ts          computer opponents
     persona.ts     who is in the seat: faces, skill, tendencies
@@ -363,8 +382,8 @@ src/
 
 Future development is tracked as [GitHub issues](https://github.com/AlpheCIT/BNOTW/issues), grouped into three phases:
 
-- **Phase A — the improvement app.** Hand replay, coach explanations, drill mode,
-  bots that adapt, a better range model, misclick protection.
+- **Phase A — the improvement app.** ~~Hand replay~~ (done), coach explanations,
+  drill mode, bots that adapt, a better range model, misclick protection.
 - **Phase B — foundation.** CI, UI tests, accessibility, and getting the thing
   deployed and installable.
 - **Phase C — deferred.** Live-night mode, the auto-drafted recap, the table

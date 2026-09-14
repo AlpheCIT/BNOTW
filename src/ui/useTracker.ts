@@ -10,6 +10,7 @@ import { BIG_BLIND } from '../engine/bnotw'
 import { cardCode } from '../engine/cards'
 import { reviewDecision, type CoachAdvice } from '../engine/coach'
 import { isDexterHand, livePlayers } from '../engine/hand'
+import { buildReplay } from '../engine/replay'
 import {
   accumulate, emptyTotals, type DecisionRecord, type HandRecord, type PlayMode,
   type PlayerTotals,
@@ -20,6 +21,12 @@ import { loadPlayerLog, savePlayerLog, type PlayerLog } from '../state/storage'
 
 /** How many individual hands to keep. The totals are never truncated. */
 const HISTORY_LIMIT = 600
+/**
+ * How many of those keep their full replay. A replay is an order of magnitude
+ * bigger than the summary row, so older hands keep the row and lose the replay
+ * rather than the history getting short.
+ */
+const REPLAY_LIMIT = 150
 
 interface InProgress {
   handNumber: number
@@ -141,14 +148,14 @@ export function useTracker(): TrackerApi {
       dexterHeld: isDexterHand(player.hole),
       dexterWon: state.dexter?.seat === seat,
       decisions: progress.decisions,
+      replay: buildReplay(state, table.seats, seat),
     }
 
     setLog((prev) => {
-      const next: PlayerLog = {
-        version: 1,
-        totals: accumulate(prev.totals, record),
-        hands: [record, ...prev.hands].slice(0, HISTORY_LIMIT),
-      }
+      const hands = [record, ...prev.hands]
+        .slice(0, HISTORY_LIMIT)
+        .map((hand, i) => (i < REPLAY_LIMIT || !hand.replay ? hand : { ...hand, replay: undefined }))
+      const next: PlayerLog = { version: 1, totals: accumulate(prev.totals, record), hands }
       savePlayerLog(next)
       return next
     })

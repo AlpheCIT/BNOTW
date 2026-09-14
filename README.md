@@ -287,6 +287,44 @@ Two honest notes on the numbers:
   ahead". Cards that only pair the board are not counted, since they help
   everyone equally.
 
+## Drill
+
+One decision at a time, with the coach marking each one.
+
+Spots are **generated, not replayed from your history**. A spot you have seen
+before is one you can remember the answer to, which trains recall rather than
+judgement. So a real hand is dealt and played out by the bots — the same
+engine, the same rules — and handed to you at the moment the decision arrives.
+Your own seat is played by a bot up to that point, because a spot has to be
+arrived at by plausible play or it is not one you would ever face.
+
+Which street comes up is seeded from your record: streets you disagree with the
+coach on most come up most, weighted 4:3:2:1 over the ranking so the weakest is
+four times as likely as the strongest and none is ever excluded. A street needs
+at least twenty measured decisions before it can be called weak — three bad
+rivers are not evidence — and unmeasured streets queue behind measured ones
+rather than being given a made-up score.
+
+There is no bet sizing, because sizing is not marked: the verdict turns on
+whether you fold, call or raise. Offering a slider would imply a precision the
+marking does not have.
+
+Bomb pots and straddles are kept out. Both change the price of everything for
+reasons unrelated to the decision being practised. (The suited-flop rule forces
+a bomb pot on the next hand regardless of the schedule, so turning the schedule
+off is not enough on its own — the drill clears it every hand.)
+
+**Drill results are kept out of your record and out of your rating.** The
+rating is a claim about how you play: hands you were dealt, money that was
+yours. Drill spots are generated, repeatable and free, so folding them in would
+let a number meant to describe reality be moved by grinding spots you find easy.
+The drill keeps its own tally instead.
+
+The next spot is dealt while you are reading the verdict on the current one.
+Generating one means playing a whole hand and running the coach over it — up to
+a second on a phone — and a drill that pauses between questions is one nobody
+finishes.
+
 ## My Game
 
 Every hand you play — at the table and in coach mode both — is recorded, and two
@@ -540,6 +578,35 @@ same money twice.
 Coach mode is never saved. It is explicitly not a night and must not write over
 one.
 
+## Misclicks
+
+Folding aces because a thumb landed low is unrecoverable and, unlike a bad
+call, teaches you nothing.
+
+Three things guard against it, and the rule shaping all of them is that a
+confirmation has to stay rare enough to mean something — one that fires on
+every fold is one you learn to tap through.
+
+- **The action bar ignores taps for 350 ms after it appears.** Most mis-taps
+  are not mis-aimed; they are aimed at what was on screen a moment ago and land
+  as the buttons arrive. Swallowing the first fraction of a second removes the
+  whole class and costs nothing.
+- **A second tap is asked for** only when the action cannot be taken back:
+  folding a hand worth Chen 9 or better pre-flop, folding two pair or better
+  after the flop, or putting the whole stack in. The confirmation replaces the
+  buttons rather than covering them, so the second tap cannot land where the
+  first did.
+- **Keyboard shortcuts** at a desk: `F` fold, `C` check or call, `R` or `B`
+  open the raise, `Enter` commit, `Escape` cancel. They are disabled while a
+  confirmation is up — the point of that sheet is a deliberate second input.
+
+Turn the confirmations off in Settings if you find them patronising; the
+350 ms settle stays either way.
+
+There is deliberately *no* guard for folding when checking is free: the engine
+sets `canFold` and `canCheck` from the same condition, so that has never been
+possible.
+
 ## Where the data lives
 
 The Record Book, the roster and your own tracked hands are stored in this
@@ -567,6 +634,8 @@ src/
     ai.ts          computer opponents
     persona.ts     who is in the seat: faces, skill, tendencies
     coach.ts       equity, outs, pot odds and the recommendation
+    drill.ts       generating one decision at a time, aimed at your weak street
+    misclick.ts    which taps to ask twice about
     brief.ts       the facts a narrator is allowed to talk about
     narration.ts   the wire contract between app and proxy
     narrator.ts    the browser side of it

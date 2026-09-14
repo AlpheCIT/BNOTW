@@ -112,7 +112,18 @@ input, textarea, select {
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 3px;
+  /* Seven tabs do not fit a phone. Scrolling the strip beats shrinking the
+     text to unreadable or wrapping it into a second row that pushes the table
+     down the screen. */
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+  min-width: 0;
 }
+
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { scroll-snap-align: center; flex: 0 0 auto; }
 
 .tabs button {
   padding: 7px 13px;
@@ -1138,6 +1149,101 @@ table.grid tr.winner td { background: rgba(95, 208, 138, 0.08); }
 }
 
 .xray-row { display: flex; gap: 8px; align-items: center; font-size: 11px; }
+
+/* Drill mode: one decision, nothing else on screen. */
+.drill {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  max-width: 560px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.drill-head { display: flex; align-items: center; gap: 10px; }
+
+.drill-facts, .drill-numbers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 8px;
+}
+
+.drill-board {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.drill-label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 700;
+}
+
+/* CardRow renders a fragment, so its cards need a row of their own or they
+   inherit the column direction above and stack vertically. */
+.drill-cards { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.drill-actions { display: flex; gap: 10px; }
+.drill-actions .btn { flex: 1; padding: 16px 8px; font-size: 16px; }
+
+.drill-verdict {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+
+.drill-verdict.right { border-color: #2c5741; background: #12281e; }
+.drill-verdict.wrong { border-color: #5c3330; background: #2a1817; }
+.drill-verdict b { font-size: 16px; }
+.drill-verdict.right b { color: var(--win); }
+.drill-verdict.wrong b { color: var(--loss); }
+.drill-verdict p { margin: 0; font-size: 13.5px; line-height: 1.5; color: var(--ink-dim); }
+
+.drill-score {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.btn.wide { width: 100%; padding: 14px; font-size: 15px; }
+
+/* The settling window: the buttons are visibly arriving rather than disabled,
+   because a greyed-out Fold reads as "you cannot fold" and this is not that. */
+.action-buttons.settling { opacity: 0.55; pointer-events: none; }
+.action-buttons { transition: opacity 120ms ease-out; }
+
+/* Asking twice. This replaces the buttons rather than covering them, so the
+   second tap cannot land where the first did — and so the bar grows to fit
+   the question instead of clipping it. */
+.confirm-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 2px 2px;
+}
+
+.confirm-body { display: flex; flex-direction: column; gap: 3px; }
+.confirm-body b { font-size: 15px; color: var(--brass-bright); }
+.confirm-body span { font-size: 12.5px; color: var(--ink-dim); line-height: 1.45; }
+.confirm-actions { display: flex; gap: 10px; }
+.confirm-actions .btn { flex: 1; padding: 13px 10px; font-size: 15px; }
+
 
 /* Offered, never forced: a reload mid-hand would lose the hand. */
 .update-bar {

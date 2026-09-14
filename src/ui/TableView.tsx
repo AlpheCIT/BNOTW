@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   BIG_BLIND, BOMB_POT_GAMES, CHIP_INCREMENT, NAMED_BETS, SMALL_BLIND,
   money, namedBetFor, toChipIncrement,
@@ -7,6 +7,7 @@ import { cardCode } from '../engine/cards'
 import { shortHand } from '../engine/handEval'
 import { advise, pct, showdownEquity, type CoachAdvice, type EquityResult } from '../engine/coach'
 import { bestHand, legalActions, livePlayers, potTotal } from '../engine/hand'
+import { guardFor, type Guard, type GuardOptions } from '../engine/misclick'
 import type { Action, HandPlayer, HandState, Seat as SeatModel } from '../engine/types'
 import { Avatar } from './Avatar'
 import { CoachPanel } from './CoachPanel'
@@ -49,7 +50,7 @@ function betSpot(index: number, total: number) {
 }
 
 export function TableView({
-  game, onCashOut, coach, tracker, mode = 'table', narrator,
+  game, onCashOut, coach, tracker, mode = 'table', narrator, guardOptions = {},
 }: {
   game: GameApi
   onCashOut: () => void
@@ -60,6 +61,8 @@ export function TableView({
   mode?: PlayMode
   /** Optional explanation service; absent when none is configured. */
   narrator?: NarratorApi
+  /** When to ask twice before an action you cannot take back. */
+  guardOptions?: GuardOptions
 }) {
   const { table, version } = game
   const hand = table.hand
@@ -247,7 +250,7 @@ export function TableView({
         />
       )}
       </div>
-      <Controls game={game} act={act} />
+      <Controls game={game} act={act} guardOptions={guardOptions} />
     </div>
   )
 }
@@ -361,7 +364,13 @@ function HandLog({ hand }: { hand: HandState | null }) {
 
 // ---------------------------------------------------------------------------
 
-function Controls({ game, act }: { game: GameApi; act: (action: Action) => void }) {
+function Controls({
+  game, act, guardOptions,
+}: {
+  game: GameApi
+  act: (action: Action) => void
+  guardOptions: GuardOptions
+}) {
   const { table } = game
   const hand = table.hand
   const seat = table.human.seat
@@ -468,7 +477,7 @@ function Controls({ game, act }: { game: GameApi; act: (action: Action) => void 
   }
 
   if (hand.phase === 'acting' && hand.actingSeat === seat && player) {
-    return <ActionButtons game={game} act={act} />
+    return <ActionButtons game={game} act={act} guardOptions={guardOptions} />
   }
 
   return (
@@ -491,7 +500,23 @@ function Controls({ game, act }: { game: GameApi; act: (action: Action) => void 
 
 // ---------------------------------------------------------------------------
 
-function ActionButtons({ game, act }: { game: GameApi; act: (action: Action) => void }) {
+/**
+ * How long the action bar ignores taps after it appears.
+ *
+ * The fat-finger fold is usually not a mis-aimed tap at all: it is a tap aimed
+ * at something that was on screen a moment ago, landing just as the buttons
+ * arrive. Swallowing the first fraction of a second costs nobody anything and
+ * removes the whole class.
+ */
+const SETTLE_MS = 350
+
+function ActionButtons({
+  game, act, guardOptions,
+}: {
+  game: GameApi
+  act: (action: Action) => void
+  guardOptions: GuardOptions
+}) {
   const { table } = game
   const hand = table.hand!
   const seat = table.human.seat
@@ -503,12 +528,70 @@ function ActionButtons({ game, act }: { game: GameApi; act: (action: Action) => 
   const pot = potTotal(hand)
   const [raising, setRaising] = useState(false)
   const [amount, setAmount] = useState(legal.minRaiseTo)
+  const [pending, setPending] = useState<{ action: Action; guard: Guard } | null>(null)
+  const [settled, setSettled] = useState(false)
 
   // Reset the slider whenever a fresh decision lands on us.
   useEffect(() => {
     setRaising(false)
     setAmount(legal.minRaiseTo)
+    setPending(null)
   }, [legal.minRaiseTo, legal.maxRaiseTo, hand.street, hand.handNumber])
+
+  // Re-armed for every decision, not once per hand: the buttons reappear each
+  // time the action comes back round.
+  useEffect(() => {
+    setSettled(false)
+    const timer = setTimeout(() => setSettled(true), SETTLE_MS)
+    return () => clearTimeout(timer)
+  }, [hand.handNumber, hand.street, hand.actingSeat])
+
+  /** Every route to an action goes through here, keyboard included. */
+  const attempt = useCallback((action: Action) => {
+    if (!settled) return
+    const guard = guardFor(hand, table.seats, seat, action, legal, guardOptions)
+    if (guard) setPending({ action, guard })
+    else act(action)
+  }, [settled, hand, table.seats, seat, legal, guardOptions, act])
+
+  /**
+   * Keyboard shortcuts, for playing at a desk. Deliberately not bound while a
+   * confirmation is up: the whole point of that sheet is a second, deliberate
+   * input, and a stray F would defeat it.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (pending) return
+      if (event.metaKey || event.ctrlKey || event.altKey) return
+      const target = event.target as HTMLElement | null
+      // Never steal a key from something being typed into.
+      if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) {
+        return
+      }
+
+      if (raising) {
+        if (event.key === 'Enter') { event.preventDefault(); submitRaise() }
+        if (event.key === 'Escape') { event.preventDefault(); setRaising(false) }
+        return
+      }
+
+      switch (event.key.toLowerCase()) {
+        case 'f':
+          if (legal.canFold) { event.preventDefault(); attempt({ kind: 'fold' }) }
+          break
+        case 'c':
+          event.preventDefault()
+          attempt(legal.canCheck ? { kind: 'check' } : { kind: 'call' })
+          break
+        case 'r':
+        case 'b':
+          if (canOpenRaise) { event.preventDefault(); setRaising(true) }
+          break
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   const canOpenRaise = legal.canBet || legal.canRaise
   const named = namedBetFor(amount)
@@ -526,13 +609,13 @@ function ActionButtons({ game, act }: { game: GameApi; act: (action: Action) => 
   quick.push({ label: 'All in', value: legal.maxRaiseTo })
 
   const submitRaise = () => {
-    act({ kind: legal.canBet ? 'bet' : 'raise', amount: clamp(amount, legal) })
+    attempt({ kind: legal.canBet ? 'bet' : 'raise', amount: clamp(amount, legal) })
     setRaising(false)
   }
 
   return (
     <div className="actionbar">
-      {raising && canOpenRaise && (
+      {raising && canOpenRaise && !pending && (
         <div className="raise-panel">
           <div className="raise-head">
             <b className="num">{money(amount)}</b>
@@ -566,19 +649,38 @@ function ActionButtons({ game, act }: { game: GameApi; act: (action: Action) => 
         </div>
       )}
 
-      <div className="action-buttons">
+      {pending ? (
+        <div className="confirm-sheet" role="alertdialog" aria-label={pending.guard.title}>
+          <div className="confirm-body">
+            <b>{pending.guard.title}</b>
+            <span>{pending.guard.detail}</span>
+          </div>
+          <div className="confirm-actions">
+            <button className="btn" onClick={() => setPending(null)} autoFocus>
+              Back
+            </button>
+            <button
+              className="btn danger"
+              onClick={() => { const { action } = pending; setPending(null); act(action) }}
+            >
+              {pending.guard.confirm}
+            </button>
+          </div>
+        </div>
+      ) : (
+      <div className={`action-buttons ${settled ? '' : 'settling'}`}>
         <button
           className="btn fold"
           disabled={!legal.canFold}
-          onClick={() => act({ kind: 'fold' })}
+          onClick={() => attempt({ kind: 'fold' })}
         >
           Fold
         </button>
 
         {legal.canCheck ? (
-          <button className="btn check" onClick={() => act({ kind: 'check' })}>Check</button>
+          <button className="btn check" onClick={() => attempt({ kind: 'check' })}>Check</button>
         ) : (
-          <button className="btn call" onClick={() => act({ kind: 'call' })}>
+          <button className="btn call" onClick={() => attempt({ kind: 'call' })}>
             Call
             <small>{money(legal.callAmount)}{legal.callIsAllIn ? ' · all in' : ''}</small>
           </button>
@@ -596,6 +698,7 @@ function ActionButtons({ game, act }: { game: GameApi; act: (action: Action) => 
           </button>
         )}
       </div>
+      )}
     </div>
   )
 }

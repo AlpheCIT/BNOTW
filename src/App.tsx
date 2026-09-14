@@ -12,6 +12,7 @@ import {
   type CoachCreds, type RecordBook, type RosterState,
 } from './state/storage'
 import { CoachScorecard } from './ui/CoachPanel'
+import { DrillView } from './ui/DrillView'
 import { PlayersView } from './ui/Players'
 import { RecordBookView } from './ui/RecordBook'
 import { RulesView } from './ui/RulesView'
@@ -19,15 +20,17 @@ import { StatsView } from './ui/StatsView'
 import { TableView } from './ui/TableView'
 import { useAppUpdate } from './ui/useAppUpdate'
 import { useCoach } from './ui/useCoach'
+import { useDrill } from './ui/useDrill'
 import { useGame, type Speed } from './ui/useGame'
 import { useNarrator } from './ui/useNarrator'
 import { useTracker } from './ui/useTracker'
 
-type Tab = 'table' | 'coach' | 'stats' | 'players' | 'book' | 'rules'
+type Tab = 'table' | 'coach' | 'drill' | 'stats' | 'players' | 'book' | 'rules'
 
 const TABS: [Tab, string][] = [
   ['table', 'Table'],
   ['coach', 'Coach'],
+  ['drill', 'Drill'],
   ['stats', 'My Game'],
   ['players', 'Players'],
   ['book', 'Book'],
@@ -44,6 +47,8 @@ interface Preferences {
   speed: Speed
   /** Where the coach narrator lives. Empty means explanations are off. */
   coachEndpoint: string
+  /** Ask twice before a fold or an all-in you probably did not mean. */
+  confirmBigActions: boolean
 }
 
 const DEFAULT_PREFS: Preferences = {
@@ -55,6 +60,7 @@ const DEFAULT_PREFS: Preferences = {
   straddleMultiplier: 1,
   speed: 'normal',
   coachEndpoint: '',
+  confirmBigActions: true,
 }
 
 /** The personas actually sitting down, in the order they were seated. */
@@ -86,11 +92,17 @@ export default function App() {
   // records for. Only the one on screen ticks.
   // Only the table you keep records for is remembered across a reload; coach
   // mode is explicitly not a night and must never write over one.
+  const guardOptions = useMemo(
+    () => ({ enabled: prefs.confirmBigActions }),
+    [prefs.confirmBigActions],
+  )
   const game = useGame(tableSettings, tab === 'table', true)
   const coachGame = useGame(tableSettings, tab === 'coach')
   const coach = useCoach()
   const tracker = useTracker()
   const update = useAppUpdate()
+  // Seeded from your real record, so the weakest street comes up most.
+  const drill = useDrill(opponents, tracker.totals, prefs.playerName, tab === 'drill')
   // Two narrators: an explanation at the table is about one decision, and a
   // review in My Game is about a whole history. Sharing one would have each
   // wipe the other's answer.
@@ -196,6 +208,7 @@ export default function App() {
             onCashOut={() => setShowCashOut(true)}
             tracker={tracker}
             mode="table"
+            guardOptions={guardOptions}
           />
         )}
         {tab === 'coach' && (
@@ -217,9 +230,11 @@ export default function App() {
               tracker={tracker}
               mode="coach"
               narrator={tableNarrator}
+              guardOptions={guardOptions}
             />
           </>
         )}
+        {tab === 'drill' && <DrillView drill={drill} />}
         {tab === 'stats' && <StatsView tracker={tracker} narrator={reviewNarrator} />}
         {tab === 'players' && (
           <PlayersView roster={roster} setRoster={setRoster} onSeatChange={reseat} />
@@ -446,6 +461,23 @@ function SettingsDialog({
           AWS Bedrock and Google Vertex AI are not in this list on purpose: both
           authenticate with signed requests rather than a bearer key, which a
           browser cannot do safely. Put either behind the proxy instead.
+        </div>
+
+        <div className="field">
+          <label className="inline-check">
+            <input
+              type="checkbox"
+              checked={draft.confirmBigActions}
+              onChange={(e) => set('confirmBigActions', e.target.checked)}
+            />
+            <span>Ask twice before folding a big hand or going all in</span>
+          </label>
+          <p className="sub" style={{ marginTop: 4 }}>
+            Only fires where a mistap is unrecoverable — folding when checking is
+            free, folding a strong hand, or putting your whole stack in. The
+            action bar also ignores the first moment after it appears, which is
+            when most mis-taps land.
+          </p>
         </div>
 
         <h2 style={{ marginTop: 18 }}>Table Settings</h2>

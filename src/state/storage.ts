@@ -19,6 +19,7 @@ const PLAYER_KEY = 'bnotw.player.v1'
 const COACH_KEY_KEY = 'bnotw.coachkey.v1'
 const COACH_CREDS_KEY = 'bnotw.coachcreds.v1'
 const TABLE_KEY = 'bnotw.table.v1'
+const DRILL_KEY = 'bnotw.drill.v1'
 const COACH_KEY = 'bnotw.coach.v1'
 
 export interface RecordBook {
@@ -338,5 +339,65 @@ export function saveTableSnapshot(snapshot: TableSnapshot | null): void {
     // Out of quota, or private browsing. The session simply will not survive
     // being closed, which is exactly where this started — and never a reason
     // to interrupt a hand.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Drill mode
+// ---------------------------------------------------------------------------
+
+export interface DrillStreetRow {
+  spots: number
+  agreed: number
+  evLost: number
+}
+
+/**
+ * Kept entirely apart from your real record, and deliberately not folded into
+ * the rating.
+ *
+ * The rating is a claim about how you play — hands you were dealt, money that
+ * was yours. Drill spots are generated, repeatable and free, so mixing them in
+ * would let you move a number that is supposed to describe reality by
+ * grinding spots you find easy. This bucket says how the practice is going;
+ * the rating still says how you play.
+ */
+export interface DrillStats {
+  version: 1
+  spots: number
+  agreed: number
+  evLost: number
+  streak: number
+  bestStreak: number
+  byStreet: Record<string, DrillStreetRow>
+}
+
+export function emptyDrillStats(): DrillStats {
+  return { version: 1, spots: 0, agreed: 0, evLost: 0, streak: 0, bestStreak: 0, byStreet: {} }
+}
+
+export function loadDrillStats(): DrillStats {
+  if (typeof localStorage === 'undefined') return emptyDrillStats()
+  try {
+    const raw = localStorage.getItem(DRILL_KEY)
+    if (!raw) return emptyDrillStats()
+    const data = JSON.parse(raw) as Partial<DrillStats>
+    return {
+      ...emptyDrillStats(),
+      ...data,
+      version: 1,
+      byStreet: data.byStreet && typeof data.byStreet === 'object' ? data.byStreet : {},
+    }
+  } catch {
+    return emptyDrillStats()
+  }
+}
+
+export function saveDrillStats(stats: DrillStats): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(DRILL_KEY, JSON.stringify(stats))
+  } catch {
+    // Practice history is the most disposable thing here; never fail over it.
   }
 }

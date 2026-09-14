@@ -62,8 +62,28 @@ export interface DexterRecord {
   total: number
 }
 
+/**
+ * A session, frozen between hands.
+ *
+ * Everything here outlives a hand; a hand in progress deliberately does not
+ * survive. Restoring mid-hand would mean rebuilding the shoe, the betting
+ * round and whose turn it is from a serialised form — far more machinery, and
+ * more ways to be subtly wrong, than dropping one hand is worth. The stacks
+ * are as they were before it was dealt, so nothing is lost but the deal.
+ */
 export interface TableSnapshot {
-  version: number
+  version: 1
+  savedAt: number
+  seats: Seat[]
+  handNumber: number
+  handsPlayed: number
+  dexterCount: number
+  dexterLog: DexterRecord[]
+  regularButtonSeat: number
+  bombRunLength: number
+  pendingBomb: string | null
+  handsSinceBomb: number
+  startedAt: number
 }
 
 export class Table {
@@ -417,4 +437,77 @@ export class Table {
   elapsedMinutes(): number {
     return (Date.now() - this.startedAt) / 60000
   }
+
+  // -- surviving the app being closed ---------------------------------------
+
+  /** Freeze what outlives a hand. Safe to call at any time; the hand is not kept. */
+  snapshot(): TableSnapshot {
+    return {
+      version: 1,
+      savedAt: Date.now(),
+      // Structured-cloned rather than referenced: the caller is about to
+      // serialise this, and the live seats keep mutating underneath it.
+      seats: this.seats.map((seat) => ({ ...seat, persona: { ...seat.persona } })),
+      handNumber: this.handNumber,
+      handsPlayed: this.handsPlayed,
+      dexterCount: this.dexterCount,
+      dexterLog: this.dexterLog.map((d) => ({ ...d })),
+      regularButtonSeat: this.regularButtonSeat,
+      bombRunLength: this.bombRunLength,
+      pendingBomb: this.pendingBomb,
+      handsSinceBomb: this.handsSinceBomb,
+      startedAt: this.startedAt,
+    }
+  }
+
+  /**
+   * Put a frozen session back. Returns false if the snapshot is unusable, in
+   * which case the table is untouched and play starts fresh — a corrupt
+   * restore that half-applies would be worse than no restore at all.
+   */
+  restore(snapshot: TableSnapshot | null | undefined): boolean {
+    if (!snapshot || snapshot.version !== 1) return false
+    if (!Array.isArray(snapshot.seats) || snapshot.seats.length < 2) return false
+
+    const seats = snapshot.seats.map((seat, i) => ({
+      id: String(seat?.id ?? `seat-${i}`),
+      name: String(seat?.name ?? `Seat ${i}`),
+      isHuman: seat?.isHuman === true,
+      seat: i,
+      stack: num(seat?.stack, 0),
+      buyIns: Math.max(1, Math.round(num(seat?.buyIns, 1))),
+      sittingOut: seat?.sittingOut === true,
+      persona: seat?.persona,
+    }))
+    // Seat 0 is the human everywhere else in the engine; a snapshot that does
+    // not agree is not one of ours.
+    if (!seats[0].isHuman || seats.some((s) => !s.persona)) return false
+
+    this.seats = seats as Seat[]
+    this.hand = null
+    this.handNumber = Math.max(0, Math.round(num(snapshot.handNumber, 0)))
+    this.handsPlayed = Math.max(0, Math.round(num(snapshot.handsPlayed, 0)))
+    this.dexterCount = Math.max(0, Math.round(num(snapshot.dexterCount, 0)))
+    this.dexterLog = Array.isArray(snapshot.dexterLog) ? snapshot.dexterLog : []
+    this.regularButtonSeat = clampSeat(snapshot.regularButtonSeat, seats.length)
+    this.bombRunLength = Math.max(0, Math.round(num(snapshot.bombRunLength, 0)))
+    this.pendingBomb = typeof snapshot.pendingBomb === 'string' ? snapshot.pendingBomb : null
+    this.handsSinceBomb = Math.max(0, Math.round(num(snapshot.handsSinceBomb, 0)))
+    this.startedAt = num(snapshot.startedAt, Date.now())
+    // Deliberately re-anchored to now rather than restored. A time-triggered
+    // bomb pot measures from the last one, and reopening the app a day later
+    // should not owe you a bomb pot on the first hand back.
+    this.lastBombAt = Date.now()
+    this.touch()
+    return true
+  }
+}
+
+function num(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function clampSeat(value: unknown, count: number): number {
+  const n = Math.round(num(value, 0))
+  return n >= 0 && n < count ? n : 0
 }

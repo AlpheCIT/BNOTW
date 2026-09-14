@@ -6,6 +6,7 @@
  */
 
 import { defaultRoster, type Persona } from '../engine/persona'
+import type { TableSnapshot } from '../engine/table'
 import type { ProviderId } from '../engine/providers/types'
 import { emptyTotals, type HandRecord, type PlayerTotals } from '../engine/playerStats'
 import type { GameNight } from './records'
@@ -17,6 +18,7 @@ const ROSTER_KEY = 'bnotw.roster.v1'
 const PLAYER_KEY = 'bnotw.player.v1'
 const COACH_KEY_KEY = 'bnotw.coachkey.v1'
 const COACH_CREDS_KEY = 'bnotw.coachcreds.v1'
+const TABLE_KEY = 'bnotw.table.v1'
 const COACH_KEY = 'bnotw.coach.v1'
 
 export interface RecordBook {
@@ -297,5 +299,44 @@ export function saveCoachCreds(creds: CoachCreds): void {
     localStorage.removeItem(COACH_KEY_KEY)
   } catch {
     // Private browsing: the key simply will not be remembered.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The session in progress
+// ---------------------------------------------------------------------------
+
+/**
+ * The night you are in the middle of.
+ *
+ * Kept apart from the Record Book, which holds nights that have been cashed
+ * out and settled. This is the one still being played, and it exists only so
+ * that a browser reclaiming the tab — which iOS does routinely when you switch
+ * apps — does not quietly reset your stack and buy-in count.
+ */
+export function loadTableSnapshot(): TableSnapshot | null {
+  if (typeof localStorage === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(TABLE_KEY)
+    if (!raw) return null
+    const data = JSON.parse(raw) as TableSnapshot
+    // Anything more than a shape check belongs to Table.restore, which has to
+    // validate it anyway and is the only thing that knows what is coherent.
+    return data?.version === 1 ? data : null
+  } catch {
+    return null
+  }
+}
+
+/** Pass null to end the session — after a cash-out, or on a fresh deal. */
+export function saveTableSnapshot(snapshot: TableSnapshot | null): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    if (snapshot) localStorage.setItem(TABLE_KEY, JSON.stringify(snapshot))
+    else localStorage.removeItem(TABLE_KEY)
+  } catch {
+    // Out of quota, or private browsing. The session simply will not survive
+    // being closed, which is exactly where this started — and never a reason
+    // to interrupt a hand.
   }
 }

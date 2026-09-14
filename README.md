@@ -517,6 +517,29 @@ is whether each service accepts the specific parameters — the model id, the
 fallback beta, the JSON response format — so treat the first real call against
 any provider as the test.
 
+## The session in progress
+
+A night you are in the middle of is written down between hands, so closing the
+tab — or iOS reclaiming it, which it does routinely when you switch apps —
+does not reset your stack and buy-in count. Reopening puts you back where you
+were.
+
+A hand in progress is deliberately **not** kept. Restoring one would mean
+rebuilding the shoe, the betting round and whose turn it is from a serialised
+form: much more machinery, and many more ways to be subtly wrong, than dropping
+a single deal is worth. The stacks come back as they stood before that hand was
+dealt, so the only thing lost is the hand itself.
+
+The bomb-pot clock re-anchors on reopening. A time-triggered bomb pot measures
+from the last one, and being closed for six hours is not six hours of play.
+
+Cashing out settles the night into the Record Book and starts a fresh session —
+otherwise dealing on from the same stacks would let a second cash-out record the
+same money twice.
+
+Coach mode is never saved. It is explicitly not a night and must not write over
+one.
+
 ## Where the data lives
 
 The Record Book, the roster and your own tracked hands are stored in this
@@ -539,7 +562,8 @@ src/
     types.ts       game state types
     hand.ts        one hand: posting, dealing, betting, side pots, showdown
     replay.ts      flattening a finished hand and stepping back through it
-    table.ts       the session: stacks, button, bomb-pot scheduling, Dexter ladder
+    table.ts       the session: stacks, button, bomb-pot scheduling, Dexter ladder,
+                   and freezing all of it so a closed tab does not lose it
     ai.ts          computer opponents
     persona.ts     who is in the seat: faces, skill, tendencies
     coach.ts       equity, outs, pot odds and the recommendation

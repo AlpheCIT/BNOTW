@@ -84,7 +84,9 @@ export default function App() {
 
   // Two separate tables, so coaching never touches the session you are keeping
   // records for. Only the one on screen ticks.
-  const game = useGame(tableSettings, tab === 'table')
+  // Only the table you keep records for is remembered across a reload; coach
+  // mode is explicitly not a night and must never write over one.
+  const game = useGame(tableSettings, tab === 'table', true)
   const coachGame = useGame(tableSettings, tab === 'coach')
   const coach = useCoach()
   const tracker = useTracker()
@@ -157,7 +159,10 @@ export default function App() {
     setOpenNightId(night.id)
     setShowCashOut(false)
     setTab('book')
-  }, [game, book.nights, setBook])
+    // The night is settled and in the book, so the session is over. Dealing on
+    // from the same stacks would let a second cash-out record it all again.
+    game.restart({ ...prefs, opponents })
+  }, [game, book.nights, setBook, prefs, opponents])
 
   return (
     <div className="app">

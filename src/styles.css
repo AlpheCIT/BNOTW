@@ -1175,8 +1175,8 @@ table.grid tr.winner td { background: rgba(95, 208, 138, 0.08); }
 @media (max-width: 620px) {
   .coach-bar { padding: 6px 12px; }
   .coach-bar .faint { display: none; }
-  .tabs { padding: 2px; gap: 2px; }
-  .tabs button { padding: 7px 9px; font-size: 11px; }
+  .tabs { padding: 2px; gap: 1px; }
+  .tabs button { padding: 7px 7px; font-size: 10.5px; }
   .coach { max-height: 32vh; }
 }
 

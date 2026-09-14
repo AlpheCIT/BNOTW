@@ -136,10 +136,12 @@ export function StatsView({ tracker }: { tracker: TrackerApi }) {
           <div className="warn">
             Your win rate is <b>{results.bbPer100.toFixed(1)} ± {results.margin.toFixed(1)}</b> bb/100
             — anywhere from {(results.bbPer100 - results.margin).toFixed(1)} to{' '}
-            {(results.bbPer100 + results.margin).toFixed(1)}. That band is why results
-            make a poor rating: on this sample it covers both a good winner and a
-            bad loser. Narrowing it to ±5 bb/100 would take about{' '}
-            <b>{results.handsForConfidence.toLocaleString()}</b> hands.
+            {(results.bbPer100 + results.margin).toFixed(1)}.{' '}
+            {Math.abs(results.bbPer100) < results.margin
+              ? 'That band covers both a winning player and a losing one, which is exactly why results make a poor rating.'
+              : `That band is ${(results.margin * 2).toFixed(0)} bb/100 wide — far too wide to call a win rate, which is why results make a poor rating.`}
+            {' '}Narrowing it to ±5 bb/100 would take about{' '}
+            <b>{results.handsForConfidence.toLocaleString()}</b> more hands than most home games will ever see.
           </div>
         )}
 
@@ -260,8 +262,10 @@ export function StatsView({ tracker }: { tracker: TrackerApi }) {
 // ---------------------------------------------------------------------------
 
 function RatingScale({ value, margin }: { value: number; margin: number }) {
-  const LOW = 1000
-  const HIGH = 1600
+  // Wide enough that genuinely careless play still lands on the scale rather
+  // than pinning silently at the end of it.
+  const LOW = 700
+  const HIGH = 1550
   const place = (v: number) => ((Math.max(LOW, Math.min(HIGH, v)) - LOW) / (HIGH - LOW)) * 100
   const band = Math.min(100, (margin / (HIGH - LOW)) * 100)
 
@@ -277,7 +281,7 @@ function RatingScale({ value, margin }: { value: number; margin: number }) {
         <u style={{ left: `${place(value)}%` }} />
       </div>
       <div className="rating-labels">
-        {[1040, 1200, 1370, 1445, 1500].map((v) => (
+        {[850, 1150, 1340, 1445, 1520].map((v) => (
           <span key={v} style={{ left: `${place(v)}%` }}>{ratingBand(v)}</span>
         ))}
       </div>

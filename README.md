@@ -358,3 +358,18 @@ src/
 ---
 
 **Win big. Pay the house. Write the recap.**
+
+## Where the work is tracked
+
+Future development is tracked as [GitHub issues](https://github.com/AlpheCIT/BNOTW/issues), grouped into three phases:
+
+- **Phase A — the improvement app.** Hand replay, coach explanations, drill mode,
+  bots that adapt, a better range model, misclick protection.
+- **Phase B — foundation.** CI, UI tests, accessibility, and getting the thing
+  deployed and installable.
+- **Phase C — deferred.** Live-night mode, the auto-drafted recap, the table
+  recorder, native packaging.
+
+Two issues carry constraints worth reading before starting them: the recorder
+(consent and biometric-privacy considerations) and live-night mode (why
+per-player tendency stats are not achievable at a real table).

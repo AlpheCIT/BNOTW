@@ -17,6 +17,7 @@ import { StatsView } from './ui/StatsView'
 import { TableView } from './ui/TableView'
 import { useCoach } from './ui/useCoach'
 import { useGame, type Speed } from './ui/useGame'
+import { useNarrator } from './ui/useNarrator'
 import { useTracker } from './ui/useTracker'
 
 type Tab = 'table' | 'coach' | 'stats' | 'players' | 'book' | 'rules'
@@ -38,6 +39,8 @@ interface Preferences {
   bombPotGameChoice: TableSettings['bombPotGameChoice']
   straddleMultiplier: number
   speed: Speed
+  /** Where the coach narrator lives. Empty means explanations are off. */
+  coachEndpoint: string
 }
 
 const DEFAULT_PREFS: Preferences = {
@@ -48,6 +51,7 @@ const DEFAULT_PREFS: Preferences = {
   bombPotGameChoice: 'dealer',
   straddleMultiplier: 1,
   speed: 'normal',
+  coachEndpoint: '',
 }
 
 /** The personas actually sitting down, in the order they were seated. */
@@ -79,6 +83,11 @@ export default function App() {
   const coachGame = useGame(tableSettings, tab === 'coach')
   const coach = useCoach()
   const tracker = useTracker()
+  // Two narrators: an explanation at the table is about one decision, and a
+  // review in My Game is about a whole history. Sharing one would have each
+  // wipe the other's answer.
+  const tableNarrator = useNarrator(prefs.coachEndpoint)
+  const reviewNarrator = useNarrator(prefs.coachEndpoint)
 
   useEffect(() => { saveSettings(prefs) }, [prefs])
   useEffect(() => {
@@ -178,10 +187,11 @@ export default function App() {
               coach={coach}
               tracker={tracker}
               mode="coach"
+              narrator={tableNarrator}
             />
           </>
         )}
-        {tab === 'stats' && <StatsView tracker={tracker} />}
+        {tab === 'stats' && <StatsView tracker={tracker} narrator={reviewNarrator} />}
         {tab === 'players' && (
           <PlayersView roster={roster} setRoster={setRoster} onSeatChange={reseat} />
         )}
@@ -342,6 +352,21 @@ function SettingsDialog({
           />
           <p className="sub" style={{ marginTop: 4 }}>
             Scales every player's own straddle tendency. Set it to zero to turn straddles off.
+          </p>
+        </div>
+
+        <div className="field">
+          <label htmlFor="coachendpoint">Coach narrator endpoint</label>
+          <input
+            id="coachendpoint"
+            value={draft.coachEndpoint}
+            placeholder="https://… (leave empty to turn explanations off)"
+            onChange={(e) => set('coachEndpoint', e.target.value)}
+          />
+          <p className="sub" style={{ marginTop: 4 }}>
+            Optional. With an endpoint set, the coach can explain a spot in words and
+            review your history for patterns. Everything else — the equity, the outs,
+            the pot odds, the rating — is computed on this device and works without it.
           </p>
         </div>
 

@@ -12,8 +12,22 @@ import { CoachPanel } from './CoachPanel'
 import { CardRow, PlayingCard } from './pieces'
 import type { PlayMode } from '../engine/playerStats'
 import type { CoachApi } from './useCoach'
+import type { NarratorApi } from './useNarrator'
 import type { GameApi } from './useGame'
 import type { TrackerApi } from './useTracker'
+
+/** Where a seat sits, in the words a player would use. */
+function positionLabel(hand: HandState | null, seat: number): string {
+  if (!hand) return 'in this seat'
+  const i = hand.order.indexOf(seat)
+  const n = hand.order.length
+  if (i === n - 1) return 'on the button'
+  if (i === n - 2) return 'in the cut-off'
+  if (seat === hand.smallBlindSeat) return 'in the small blind'
+  if (seat === hand.bigBlindSeat) return 'in the big blind'
+  if (i <= Math.floor(n / 3)) return 'in early position'
+  return 'in middle position'
+}
 
 /** Seats sit on an ellipse with the human parked at the bottom. */
 function ellipse(index: number, total: number, rx: number, ry: number) {
@@ -34,7 +48,7 @@ function betSpot(index: number, total: number) {
 }
 
 export function TableView({
-  game, onCashOut, coach, tracker, mode = 'table',
+  game, onCashOut, coach, tracker, mode = 'table', narrator,
 }: {
   game: GameApi
   onCashOut: () => void
@@ -43,6 +57,8 @@ export function TableView({
   /** Records how you play, in both modes. */
   tracker?: TrackerApi
   mode?: PlayMode
+  /** Optional explanation service; absent when none is configured. */
+  narrator?: NarratorApi
 }) {
   const { table, version } = game
   const hand = table.hand
@@ -83,6 +99,11 @@ export function TableView({
     coach?.countHand()
     tracker?.completeHand(table, mode)
   }, [coach, tracker, table, mode, hand, hand?.complete])
+
+  useEffect(() => {
+    narrator?.clear()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hand?.handNumber, hand?.street, hand?.actingSeat])
 
   const act = (action: Action) => {
     // In coach mode the advice is already on screen. In normal play it is
@@ -200,7 +221,14 @@ export function TableView({
 
       {!coach && <HandLog hand={hand} />}
       </div>
-      {coach && <CoachPanel advice={advice} review={coach.lastReview} />}
+      {coach && (
+        <CoachPanel
+          advice={advice}
+          review={coach.lastReview}
+          narrator={narrator}
+          position={positionLabel(hand, seat)}
+        />
+      )}
       </div>
       <Controls game={game} act={act} />
     </div>

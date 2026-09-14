@@ -1391,3 +1391,37 @@ table.grid tr.winner td { background: rgba(95, 208, 138, 0.08); }
 
 table.grid tr.clickable { cursor: pointer; }
 table.grid tr.clickable:hover { background: #1b2b24; }
+
+/* --- narrator ------------------------------------------------------------ */
+
+.explain { margin-top: 8px; }
+
+.explain-body {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: #cbdde2;
+  background: #0f1e24;
+  border: 1px solid #1d3b46;
+  border-radius: var(--radius-sm);
+  padding: 9px 11px;
+  margin-bottom: 7px;
+  white-space: pre-wrap;
+}
+
+.finding {
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  border-left: 3px solid var(--brass);
+  margin-bottom: 8px;
+}
+
+.finding b { display: block; font-size: 13.5px; margin-bottom: 3px; }
+.finding p { margin: 0 0 5px; font-size: 12.5px; line-height: 1.55; color: var(--ink-dim); }
+
+.finding .fix {
+  font-size: 12.5px;
+  color: var(--win);
+  margin: 0;
+  line-height: 1.5;
+}

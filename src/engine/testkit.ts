@@ -29,6 +29,19 @@ export function stackedShoe(codes: string): Shoe {
   return new Shoe(Math.random, parseCards(codes).reverse())
 }
 
+/**
+ * Put known hole cards in specific seats after the deal.
+ *
+ * Cards go out in `state.order`, which starts to the button's left — so
+ * stacking a shoe means working out who gets what, and heads-up the button
+ * is dealt *last*. Naming the seat directly avoids that trap.
+ */
+export function setHoleCards(state: HandState, cards: Record<number, string>): void {
+  for (const [seat, codes] of Object.entries(cards)) {
+    state.players[Number(seat)].hole = parseCards(codes)
+  }
+}
+
 /** Clockwise seat order for a hand, starting to the button's left. */
 export function dealOrder(seats: Seat[], buttonSeat: number): number[] {
   const active = seats.filter((s) => !s.sittingOut && s.stack > 0).map((s) => s.seat)

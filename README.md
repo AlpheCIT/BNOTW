@@ -15,6 +15,9 @@ Five parts:
 - **My Game** — every hand you play, tracked: your tendencies in the terms a
   poker tracker uses, where your decisions go wrong, and a rating built on
   decision quality rather than results.
+- **Explanations** (optional) — with a narrator endpoint configured, the coach
+  can put its reasoning into words, answer follow-up questions, and review your
+  whole history for patterns.
 - **Players** — the roster of regulars, each with a face and a way of playing
   you can tune.
 - **The Record Book** — buy-ins, rebuys, cash-outs, net profit, High Roller
@@ -319,6 +322,57 @@ To re-derive the calibration after changing the bots or the coach:
 npm run calibrate     # around ten minutes
 ```
 
+## Explanations (optional)
+
+Everything above is computed on the device and needs no network, no key and no
+account. On top of that, if you point the app at a narrator endpoint, two things
+become available: **Explain this spot** under the coach's verdict, with follow-up
+questions; and **Review my game** in My Game, which reads across your tendencies,
+leak counts, per-street breakdown and worst individual hands and says what they
+have in common.
+
+### The rule this is built on
+
+**The engine computes, the model narrates.** Equity, outs, pot odds and expected
+value are exact computations the app already does — on the flop and turn it
+enumerates every runout. Handing that arithmetic to a language model would be
+slower, cost money per call, and be *less* accurate.
+
+So the boundary is a **brief**: a structure of facts the engine computed, already
+formatted as strings. The narrator receives numbers and returns prose, never the
+other way round, and it is told in plain terms not to recompute anything or
+invent a figure that is not in front of it. If a fact is not in the brief, the
+narrator does not know it.
+
+### Running it
+
+The proxy exists for one reason: an API key cannot ship in a browser.
+
+```bash
+cp .env.example .env.local           # set VITE_COACH_ENDPOINT
+ANTHROPIC_API_KEY=sk-ant-... npm run coach   # proxy on :8787
+npm run dev
+```
+
+`api/coach.ts` is a standard Web `Request` → `Response` handler, which is what
+Vercel Edge, Netlify, Cloudflare Workers and Deno Deploy all speak.
+`server/dev-proxy.mjs` wraps that same handler for local use, so there is only
+one code path to keep correct. The endpoint can also be pasted into
+Settings → Coach narrator instead of being baked in at build time.
+
+It calls `claude-opus-5`, with `fallbacks: "default"` enabled so a request the
+safety classifiers decline is re-run on Anthropic's recommended substitute
+server-side rather than surfacing a refusal mid-hand. The leak review uses
+structured outputs so the findings can be rendered rather than parsed out of
+prose.
+
+Swapping providers should not touch the app: `src/engine/narration.ts` is the
+wire contract, and the model lives entirely behind the proxy.
+
+**Caveat:** the live request path has not been exercised against the real API —
+it was built from the current SDK documentation and verified end to end against
+a stub with the same wire contract. Everything else here is tested normally.
+
 ## Where the data lives
 
 The Record Book, the roster and your own tracked hands are stored in this
@@ -345,9 +399,14 @@ src/
     ai.ts          computer opponents
     persona.ts     who is in the seat: faces, skill, tendencies
     coach.ts       equity, outs, pot odds and the recommendation
+    brief.ts       the facts a narrator is allowed to talk about
+    narration.ts   the wire contract between app and proxy
+    narrator.ts    the browser side of it
     playerStats.ts your tendencies, your rating and the honest error bars
   state/           the Record Book: settlement maths, storage, exports
   ui/              React components
+api/               the narrator proxy — the only server-side code
+server/            a local wrapper so the proxy can be run in development
 ```
 
 ## Testing
@@ -382,8 +441,8 @@ src/
 
 Future development is tracked as [GitHub issues](https://github.com/AlpheCIT/BNOTW/issues), grouped into three phases:
 
-- **Phase A — the improvement app.** ~~Hand replay~~ (done), coach explanations,
-  drill mode, bots that adapt, a better range model, misclick protection.
+- **Phase A — the improvement app.** ~~Hand replay~~ and ~~coach explanations~~
+  (done), drill mode, bots that adapt, a better range model, misclick protection.
 - **Phase B — foundation.** CI, UI tests, accessibility, and getting the thing
   deployed and installable.
 - **Phase C — deferred.** Live-night mode, the auto-drafted recap, the table

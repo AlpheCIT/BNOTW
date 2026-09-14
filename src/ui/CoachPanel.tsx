@@ -2,13 +2,17 @@ import { money, signedMoney } from '../engine/bnotw'
 import { cardCode } from '../engine/cards'
 import { pct, type CoachAdvice, type DecisionReview } from '../engine/coach'
 import type { CoachStats } from '../state/storage'
+import { Explain } from './Explain'
+import type { NarratorApi } from './useNarrator'
 
 /** The advice panel shown while it is your turn in coach mode. */
 export function CoachPanel({
-  advice, review,
+  advice, review, narrator, position,
 }: {
   advice: CoachAdvice | null
   review: DecisionReview | null
+  narrator?: NarratorApi
+  position?: string
 }) {
   if (!advice) {
     return (
@@ -102,6 +106,10 @@ export function CoachPanel({
       <ul>
         {rec.reasons.map((reason, i) => <li key={i}>{reason}</li>)}
       </ul>
+
+      {narrator && (
+        <Explain advice={advice} position={position ?? 'in this seat'} narrator={narrator} />
+      )}
 
       <p className="sub" style={{ margin: 0, fontSize: 10.5 }}>
         Equity is {equity.exact ? 'counted exactly' : `sampled over ${equity.runouts.toLocaleString()} runouts`}

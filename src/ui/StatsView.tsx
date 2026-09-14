@@ -6,10 +6,18 @@ import {
   type Tendency,
 } from '../engine/playerStats'
 import type { HandRecord } from '../engine/playerStats'
+import { leakBrief } from '../engine/brief'
 import { ReplayView } from './ReplayView'
+import type { NarratorApi } from './useNarrator'
 import type { TrackerApi } from './useTracker'
 
-export function StatsView({ tracker }: { tracker: TrackerApi }) {
+export function StatsView({
+  tracker, narrator,
+}: {
+  tracker: TrackerApi
+  /** Optional review service; absent when none is configured. */
+  narrator?: NarratorApi
+}) {
   const { totals } = tracker
   const [confirmReset, setConfirmReset] = useState(false)
   const [replaying, setReplaying] = useState<HandRecord | null>(null)
@@ -120,6 +128,54 @@ export function StatsView({ tracker }: { tracker: TrackerApi }) {
           {notes.map((note, i) => (
             <div className={`note ${note.tone}`} key={i}>{note.text}</div>
           ))}
+
+          {narrator?.available && (
+            <>
+              <p className="sub" style={{ marginTop: 12 }}>
+                The notes above come from fixed thresholds. A review reads across
+                everything at once — your tendencies, your leak counts, the
+                per-street breakdown and the individual hands that cost the most —
+                and looks for the theme they share.
+              </p>
+              {!narrator.result && !narrator.loading && (
+                <button
+                  className="btn primary"
+                  onClick={() => narrator.ask({ kind: 'leaks', brief: leakBrief(totals, tracker.recent) })}
+                  disabled={totals.decisions < 20}
+                >
+                  {totals.decisions < 20
+                    ? `Review my game (needs ${20 - totals.decisions} more decisions)`
+                    : 'Review my game'}
+                </button>
+              )}
+              {narrator.loading && <div className="explain-body faint">Reading your history…</div>}
+              {narrator.error && (
+                <div className="warn bad">
+                  {narrator.error}
+                  <button
+                    className="btn small ghost"
+                    style={{ marginLeft: 8 }}
+                    onClick={() => narrator.ask({ kind: 'leaks', brief: leakBrief(totals, tracker.recent) })}
+                  >
+                    Try again
+                  </button>
+                </div>
+              )}
+              {narrator.result && (
+                <>
+                  <div className="explain-body">{narrator.result.text}</div>
+                  {narrator.result.findings?.map((finding, i) => (
+                    <div className="finding" key={i}>
+                      <b>{finding.title}</b>
+                      <p>{finding.detail}</p>
+                      <p className="fix">→ {finding.fix}</p>
+                    </div>
+                  ))}
+                  <button className="btn small ghost" onClick={narrator.clear}>Clear</button>
+                </>
+              )}
+            </>
+          )}
         </div>
       )}
 

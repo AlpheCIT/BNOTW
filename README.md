@@ -31,12 +31,69 @@ It is a web app and works on a phone, so you can keep the book at the table.
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 75 tests
+npm test
 npm run build      # static bundle in dist/
 ```
 
 `dist/` is a plain static site — any static host will serve it, and paths are
 relative so it works from a subdirectory too.
+
+## Putting it on a phone
+
+The app installs to a home screen and runs offline. There is no server to run
+and nothing to sign into: the whole thing is static files plus whatever is in
+your browser's storage.
+
+### Deploying it
+
+Any static host works. `netlify.toml` and `vercel.json` are both here, and
+`.github/workflows/deploy.yml` publishes to GitHub Pages.
+
+**If the repository is private,** GitHub Pages needs a paid plan — Netlify,
+Cloudflare Pages and Vercel all serve a private repo on their free tiers, so
+one of those is the easier path. (Free tiers change; check the current terms
+rather than taking this paragraph as fact.) Point the host at this repo and it
+needs nothing else:
+
+| | |
+| --- | --- |
+| Build command | `npm run build` |
+| Publish directory | `dist` |
+
+**To skip the git connection entirely,** run `npm run build` and drag `dist/`
+onto a host that takes a direct upload. That gets a URL in about a minute and
+is the fastest way to try the thing on a real phone.
+
+**If the repository is public,** enable Settings → Pages → Source: GitHub
+Actions and the included workflow deploys on every push to `main`.
+
+Whichever host, the cache headers matter and the config files set them:
+`assets/*` is content-hashed and cached forever, while `index.html` and `sw.js`
+must not be cached, because they are the only way a new build reaches anyone.
+
+### Installing it
+
+- **iOS** — open the URL in Safari, Share → Add to Home Screen. It must be
+  Safari; other iOS browsers cannot install a web app.
+- **Android** — Chrome offers "Install app", or Menu → Add to Home screen.
+- **Desktop** — Chrome and Edge show an install control in the address bar.
+
+Installed, it opens full screen with no browser chrome.
+
+### Offline
+
+A service worker precaches the build, so after the first visit the app opens
+and plays with no connection at all — verified with the network cut: every tab
+renders, hands deal, and the coach answers, because all of that is computed on
+the device. The only thing that needs a network is the optional model
+explanation.
+
+A new build never takes over a page that is already open; a hand in progress
+would be lost. Instead the app shows a "new version is ready" bar and reloads
+when you say so.
+
+`scripts/build-sw.mjs` generates the worker after the bundle exists, because the
+precache list has to name the exact hashed filenames Vite produced.
 
 ## How the house rules are implemented
 
@@ -495,6 +552,8 @@ src/
   ui/              React components
 api/               the narrator proxy — the only server-side code
 server/            a local wrapper so the proxy can be run in development
+scripts/           build-sw.mjs, which writes the service worker after a build
+public/            icons and the web app manifest
 ```
 
 ## Testing

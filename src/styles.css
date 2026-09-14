@@ -1139,6 +1139,25 @@ table.grid tr.winner td { background: rgba(95, 208, 138, 0.08); }
 
 .xray-row { display: flex; gap: 8px; align-items: center; font-size: 11px; }
 
+/* Offered, never forced: a reload mid-hand would lose the hand. */
+.update-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--brass);
+  color: #23180a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.update-bar .btn {
+  background: #23180a;
+  border-color: #23180a;
+  color: var(--brass-bright);
+}
+
 @media (max-width: 620px) {
   .roster { grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); }
   .coach { max-height: 40vh; }

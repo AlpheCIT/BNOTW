@@ -6,7 +6,7 @@
   "description": "BNOTW - Best Night Of The Week. Texas Hold'em with BNOTW house rules, plus a running record book.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && tsc --noEmit -p tsconfig.api.json && vite build",
+    "build": "tsc -b && tsc --noEmit -p tsconfig.api.json && vite build && node scripts/build-sw.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",

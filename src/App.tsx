@@ -17,6 +17,7 @@ import { RecordBookView } from './ui/RecordBook'
 import { RulesView } from './ui/RulesView'
 import { StatsView } from './ui/StatsView'
 import { TableView } from './ui/TableView'
+import { useAppUpdate } from './ui/useAppUpdate'
 import { useCoach } from './ui/useCoach'
 import { useGame, type Speed } from './ui/useGame'
 import { useNarrator } from './ui/useNarrator'
@@ -87,6 +88,7 @@ export default function App() {
   const coachGame = useGame(tableSettings, tab === 'coach')
   const coach = useCoach()
   const tracker = useTracker()
+  const update = useAppUpdate()
   // Two narrators: an explanation at the table is about one decision, and a
   // review in My Game is about a whole history. Sharing one would have each
   // wipe the other's answer.
@@ -159,6 +161,12 @@ export default function App() {
 
   return (
     <div className="app">
+      {update.ready && (
+        <div className="update-bar" role="status">
+          <span>A new version is ready.</span>
+          <button className="btn small" onClick={update.apply}>Reload</button>
+        </div>
+      )}
       <header className="topbar">
         <div className="brand">
           <b>BNOTW</b>

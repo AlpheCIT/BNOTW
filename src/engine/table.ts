@@ -14,46 +14,44 @@ import {
   addStraddle, advanceStreet, applyAction, applyDiscard, createHand, dealHand,
   livePlayers, resolveShowdown, settleDexter, straddleCandidates,
 } from './hand'
-import type { Action, BotStyle, HandState, Seat, Street, Variant } from './types'
+import { defaultRoster, personaFromArchetype, type Persona } from './persona'
+import type { Action, HandState, Seat, Street, Variant } from './types'
 
 export type BombPotTrigger = 'time' | 'hands' | 'off'
 
 export interface TableSettings {
   playerName: string
-  /** Number of computer opponents. The human always takes one seat. */
+  /** Your own face at the table. */
+  playerPersona?: Persona
+  /**
+   * Who is sitting down as an opponent. When empty, the first `botCount`
+   * regulars from the default roster take the seats.
+   */
+  opponents: Persona[]
+  /** Fallback table size when no opponents are named. */
   botCount: number
   bombPotTrigger: BombPotTrigger
   bombPotMinutes: number
   bombPotHands: number
   /** Whose call the bomb-pot game is. 'dealer' lets the app pick at random. */
   bombPotGameChoice: 'dealer' | 'pineapple' | 'crazyPineapple'
-  /** 0..1 — how often a bot puts out a straddle. */
-  botStraddleChance: number
+  /** Scales every persona's own straddle tendency; 0 turns straddles off. */
+  straddleMultiplier: number
   /** Bots rebuy without being asked; there is no shame in a rebuy. */
   botAutoRebuy: boolean
 }
 
 export const DEFAULT_SETTINGS: TableSettings = {
   playerName: 'You',
+  opponents: [],
   botCount: 5,
   bombPotTrigger: 'hands',
   bombPotMinutes: BOMB_POT_INTERVAL_MINUTES,
   bombPotHands: 12,
   bombPotGameChoice: 'dealer',
-  botStraddleChance: 0.12,
+  straddleMultiplier: 1,
   botAutoRebuy: true,
 }
-
-const BOT_NAMES: { name: string; style: BotStyle }[] = [
-  { name: 'Dexter', style: 'maniac' },
-  { name: 'Bob', style: 'rock' },
-  { name: 'Dave', style: 'loose' },
-  { name: 'Sully', style: 'regular' },
-  { name: 'Marty', style: 'grinder' },
-  { name: 'Cheese', style: 'loose' },
-  { name: 'Rooster', style: 'maniac' },
-  { name: 'Tank', style: 'rock' },
-]
 
 export interface DexterRecord {
   handNumber: number
@@ -117,28 +115,33 @@ export class Table {
 
   reset(settings?: Partial<TableSettings>) {
     if (settings) this.settings = { ...this.settings, ...settings }
-    const bots = BOT_NAMES.slice(0, Math.max(1, Math.min(8, this.settings.botCount)))
+    const named = this.settings.opponents ?? []
+    const bots = (named.length > 0 ? named : defaultRoster())
+      .slice(0, Math.max(1, Math.min(8, named.length || this.settings.botCount)))
+
+    const you = this.settings.playerPersona
+      ?? personaFromArchetype(this.settings.playerName || 'You', 'grinder', 'you')
 
     this.seats = [
       {
         id: 'you',
-        name: this.settings.playerName || 'You',
+        name: this.settings.playerName || you.name,
         isHuman: true,
         seat: 0,
         stack: BUY_IN_CHIPS,
         buyIns: 1,
         sittingOut: false,
-        style: 'regular',
+        persona: { ...you, name: this.settings.playerName || you.name },
       },
-      ...bots.map((bot, i) => ({
-        id: `bot-${i}`,
-        name: bot.name,
+      ...bots.map((persona, i) => ({
+        id: persona.id,
+        name: persona.name,
         isHuman: false,
         seat: i + 1,
         stack: BUY_IN_CHIPS,
         buyIns: 1,
         sittingOut: false,
-        style: bot.style,
+        persona,
       })),
     ]
 
@@ -284,21 +287,28 @@ export class Table {
     return this.hand
   }
 
-  /** Bots decide on straddles before anybody looks at a card. */
+  /**
+   * Bots decide on straddles before anybody looks at a card. Each one rolls
+   * against their own straddle tendency, so the table's appetite for a
+   * straddle follows from who is actually sitting in it.
+   */
   private declareBotStraddles() {
     const hand = this.hand!
-    const chance = this.settings.botStraddleChance
-    if (chance <= 0) return
-    // Cap the chain so a run of straddles cannot eat the whole table.
+    const multiplier = this.settings.straddleMultiplier
+    if (multiplier <= 0) return
+    // Cap the chain so a run of re-straddles cannot eat the whole table.
     for (let round = 0; round < 3; round++) {
       const candidates = straddleCandidates(hand, this.seats).filter(
         (seat) => !this.seats[seat].isHuman,
       )
       if (candidates.length === 0) return
-      // Later straddles get progressively less likely.
-      if (this.rng() >= chance / (round + 1)) return
-      const seat = candidates[Math.floor(this.rng() * candidates.length)]
-      addStraddle(hand, this.seats, seat)
+      const keen = candidates.filter((seat) => {
+        const appetite = this.seats[seat].persona.tendencies.straddle / 100
+        // Each re-straddle is a bigger ask than the last.
+        return this.rng() < (appetite * multiplier) / (round + 1)
+      })
+      if (keen.length === 0) return
+      addStraddle(hand, this.seats, keen[Math.floor(this.rng() * keen.length)])
     }
   }
 

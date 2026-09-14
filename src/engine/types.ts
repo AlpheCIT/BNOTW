@@ -1,6 +1,7 @@
 import type { Card } from './cards'
 import type { HandValue } from './handEval'
 import type { BombPotGame } from './bnotw'
+import type { Persona } from './persona'
 
 export type Variant = 'holdem' | 'pineapple' | 'crazyPineapple'
 
@@ -36,11 +37,9 @@ export interface Seat {
   buyIns: number
   /** Sat out because they busted and have not rebought. */
   sittingOut: boolean
-  /** Bot temperament; unused for the human seat. */
-  style: BotStyle
+  /** Who is in the seat: their face, skill and tendencies. */
+  persona: Persona
 }
-
-export type BotStyle = 'rock' | 'grinder' | 'regular' | 'loose' | 'maniac'
 
 export interface HandPlayer {
   seat: number

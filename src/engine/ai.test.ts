@@ -61,7 +61,7 @@ describe('bot decisions', () => {
   })
 
   it('folds the worst hand in poker to a big raise', () => {
-    const table = new Table({ botCount: 3, bombPotTrigger: 'off', botStraddleChance: 0 }, 8)
+    const table = new Table({ botCount: 3, bombPotTrigger: 'off', straddleMultiplier: 0 }, 8)
     const hand = table.startHand()
     table.closeStraddles()
     const seat = hand.actingSeat!
@@ -77,7 +77,7 @@ describe('table dynamics', () => {
   it('keeps a long session in the range a $0.25/$0.50 home game lives in', () => {
     const HANDS = 250
     const table = new Table(
-      { botCount: 5, bombPotTrigger: 'hands', bombPotHands: 12, botStraddleChance: 0.12 },
+      { botCount: 5, bombPotTrigger: 'hands', bombPotHands: 12, straddleMultiplier: 1 },
       777,
     )
     const rng = mulberry32(1234)

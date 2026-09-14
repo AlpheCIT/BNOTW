@@ -2,6 +2,7 @@
 
 import { Shoe, parseCards } from './cards'
 import { BUY_IN_CHIPS } from './bnotw'
+import { personaFromArchetype } from './persona'
 import { createHand } from './hand'
 import type { BombPotGame } from './bnotw'
 import type { HandState, Seat, Variant } from './types'
@@ -15,7 +16,7 @@ export function makeSeats(stacks: number[]): Seat[] {
     stack,
     buyIns: 1,
     sittingOut: false,
-    style: 'regular' as const,
+    persona: personaFromArchetype(`P${i}`, 'grinder', `p${i}`),
   }))
 }
 

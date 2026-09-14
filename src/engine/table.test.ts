@@ -47,7 +47,7 @@ function assertChipsBalance(table: Table) {
 
 describe('the dealer button', () => {
   it('moves one seat per regular hand', () => {
-    const table = new Table({ botCount: 5, bombPotTrigger: 'off', botStraddleChance: 0 }, 7)
+    const table = new Table({ botCount: 5, bombPotTrigger: 'off', straddleMultiplier: 0 }, 7)
     const rng = mulberry32(11)
     const buttons: number[] = []
     for (let i = 0; i < 6; i++) buttons.push(playHand(table, rng).buttonSeat)
@@ -55,7 +55,7 @@ describe('the dealer button', () => {
   })
 
   it('leaves the button in place for a bomb pot and resumes the rotation after', () => {
-    const table = new Table({ botCount: 5, bombPotTrigger: 'off', botStraddleChance: 0 }, 3)
+    const table = new Table({ botCount: 5, bombPotTrigger: 'off', straddleMultiplier: 0 }, 3)
     const rng = mulberry32(5)
 
     table.pendingBomb = null
@@ -75,7 +75,7 @@ describe('the dealer button', () => {
   })
 
   it('advances one seat for a back-to-back bomb pot, then returns', () => {
-    const table = new Table({ botCount: 5, bombPotTrigger: 'off', botStraddleChance: 0 }, 9)
+    const table = new Table({ botCount: 5, bombPotTrigger: 'off', straddleMultiplier: 0 }, 9)
     const rng = mulberry32(21)
 
     table.pendingBomb = null
@@ -99,7 +99,7 @@ describe('the dealer button', () => {
 describe('bomb pot triggers', () => {
   it('schedules one after the configured number of hands', () => {
     const table = new Table(
-      { botCount: 3, bombPotTrigger: 'hands', bombPotHands: 3, botStraddleChance: 0 },
+      { botCount: 3, bombPotTrigger: 'hands', bombPotHands: 3, straddleMultiplier: 0 },
       4,
     )
     const rng = mulberry32(2)
@@ -113,7 +113,7 @@ describe('bomb pot triggers', () => {
   })
 
   it('queues a bomb pot after a monotone flop', () => {
-    const table = new Table({ botCount: 3, bombPotTrigger: 'off', botStraddleChance: 0 }, 1)
+    const table = new Table({ botCount: 3, bombPotTrigger: 'off', straddleMultiplier: 0 }, 1)
     const rng = mulberry32(3)
     const hand = playHand(table, rng)
     hand.suitedFlopTriggered = true
@@ -126,7 +126,7 @@ describe('bomb pot triggers', () => {
 describe('self-play soak test', () => {
   it('plays 400 hands without breaking any invariant', () => {
     const table = new Table(
-      { botCount: 5, bombPotTrigger: 'hands', bombPotHands: 9, botStraddleChance: 0.25 },
+      { botCount: 5, bombPotTrigger: 'hands', bombPotHands: 9, straddleMultiplier: 1 },
       424242,
     )
     const rng = mulberry32(99)

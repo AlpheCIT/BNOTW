@@ -15,25 +15,51 @@ import { makeDeck } from './cards'
 import { evaluate } from './handEval'
 import { BIG_BLIND, CHIP_INCREMENT, NAMED_BETS, toChipIncrement } from './bnotw'
 import { legalActions, potTotal, livePlayers, type LegalActions } from './hand'
-import type { Action, BotStyle, HandState, Seat } from './types'
+import type { Persona } from './persona'
+import type { Action, HandState, Seat } from './types'
 
-interface StyleProfile {
-  /** Multiplier on the equity a bot needs before it will call. */
-  callTightness: number
-  /** How often it bets or raises when it has the goods. */
-  aggression: number
-  /** How often it fires with nothing. */
-  bluff: number
-  /** Pre-flop Chen score needed to enter an unraised pot. */
+/** How a persona's skill and tendencies come out as numbers the bot uses. */
+export interface BotProfile {
+  /** Chen score needed to enter an unopened pot. */
   openThreshold: number
+  /** 0..1 — how often they bet or raise when they like their hand. */
+  aggression: number
+  /** 0..1 — how often they fire with nothing. */
+  bluff: number
+  /** Multiplier on pot odds before calling; below 1 means chasing. */
+  callTightness: number
+  /** 0..1 — willingness to put the stack in. */
+  gamble: number
+  /** Monte Carlo trials; better players get a sharper read. */
+  trials: number
+  /** How far their read of their own hand can be off, either way. */
+  noise: number
+  /** 0..1 — how much they adjust for position. */
+  positionAware: number
 }
 
-const STYLES: Record<BotStyle, StyleProfile> = {
-  rock: { callTightness: 1.25, aggression: 0.45, bluff: 0.04, openThreshold: 9 },
-  grinder: { callTightness: 1.1, aggression: 0.6, bluff: 0.1, openThreshold: 7.5 },
-  regular: { callTightness: 1.0, aggression: 0.7, bluff: 0.15, openThreshold: 6.5 },
-  loose: { callTightness: 0.85, aggression: 0.75, bluff: 0.22, openThreshold: 4.5 },
-  maniac: { callTightness: 0.7, aggression: 0.9, bluff: 0.38, openThreshold: 2.5 },
+const TRIALS_BY_SKILL = [60, 110, 180, 260, 340]
+const NOISE_BY_SKILL = [0.16, 0.11, 0.07, 0.04, 0.015]
+const POSITION_BY_SKILL = [0, 0.25, 0.5, 0.8, 1]
+
+/**
+ * Skill controls *accuracy*, tendencies control *taste*. A beginner and a
+ * shark can want the same things and still play completely differently,
+ * because the beginner keeps misreading how good their hand is.
+ */
+export function profileOf(persona: Persona): BotProfile {
+  const { looseness, aggression, bluffing, chasing, gamble } = persona.tendencies
+  const i = Math.max(0, Math.min(4, persona.skill - 1))
+  return {
+    openThreshold: 13 - (looseness / 100) * 12,
+    aggression: 0.15 + (aggression / 100) * 0.8,
+    bluff: (bluffing / 100) * 0.5,
+    callTightness: 1.35 - (chasing / 100) * 0.8,
+    gamble: gamble / 100,
+    trials: TRIALS_BY_SKILL[i],
+    noise: NOISE_BY_SKILL[i],
+    positionAware: POSITION_BY_SKILL[i],
+  }
 }
 
 /**
@@ -130,28 +156,42 @@ export interface BotContext {
   seats: Seat[]
   seat: number
   rng: Rng
-  /** Simulation count; lower it to keep the UI snappy on phones. */
+  /** Override the persona's simulation count, e.g. to keep phones snappy. */
   trials?: number
 }
 
-export function decideAction({ state, seats, seat, rng, trials = 220 }: BotContext): Action {
+/** Where a seat sits relative to the button: 0 is first to act, 1 is the button. */
+function positionFactor(state: HandState, seat: number): number {
+  const i = state.order.indexOf(seat)
+  if (i < 0 || state.order.length < 2) return 0.5
+  return i / (state.order.length - 1)
+}
+
+/** Nudge a read by however much this player tends to misjudge a hand. */
+function misread(value: number, noise: number, rng: Rng): number {
+  return Math.max(0.01, Math.min(0.99, value + (rng() * 2 - 1) * noise))
+}
+
+export function decideAction({ state, seats, seat, rng, trials }: BotContext): Action {
   const legal = legalActions(state, seats, seat)
   const p = state.players[seat]
-  const style = STYLES[seats[seat].style] ?? STYLES.regular
+  const style = profileOf(seats[seat].persona)
   const pot = potTotal(state)
 
-  if (state.board.length === 0) return preflopDecision(state, legal, style, pot, p.hole, rng)
+  if (state.board.length === 0) {
+    return preflopDecision(state, legal, style, pot, p.hole, positionFactor(state, seat), rng)
+  }
 
   const opponents = Math.max(1, livePlayers(state).length - 1)
   const stack = seats[seat].stack
   const toCall = legal.callAmount
   const potOdds = toCall > 0 ? toCall / (pot + toCall) : 0
-  const raw = equity(p.hole, state.board, opponents, trials, rng)
+  const raw = equity(p.hole, state.board, opponents, trials ?? style.trials, rng)
 
   // The simulation deals opponents *random* hands, but a player who is still
   // putting money in has better than a random hand. Discount the estimate
   // before pricing a call, or the bots call down with anything.
-  const strength = toCall > 0 ? raw * RANGE_DISCOUNT : raw
+  const strength = misread(toCall > 0 ? raw * RANGE_DISCOUNT : raw, style.noise, rng)
 
   // --- nothing to call: check, or take a stab at it ------------------------
   if (legal.canCheck) {
@@ -163,14 +203,15 @@ export function decideAction({ state, seats, seat, rng, trials = 220 }: BotConte
 
     const fraction = strength > 0.8 ? 0.7 : strength > 0.6 ? 0.55 : 0.4
     const base = Math.max(BIG_BLIND, pot * fraction)
-    return { kind: 'bet', amount: sizeBet(base, strength, stack, legal, rng) }
+    return { kind: 'bet', amount: sizeBet(base, strength, stack, style.gamble, legal, rng) }
   }
 
   // --- facing a bet --------------------------------------------------------
   // Putting a big share of the stack at risk needs a hand, not just pot odds.
   const stackRisk = toCall / Math.max(1, toCall + stack)
   const priced = strength >= potOdds * style.callTightness
-  const worthTheStack = stackRisk < 0.4 || strength > 0.62 + stackRisk * 0.2
+  const stackBar = (0.62 + stackRisk * 0.2) * (1 - style.gamble * 0.4)
+  const worthTheStack = stackRisk < 0.4 || strength > stackBar
 
   if (!priced || !worthTheStack) {
     // Occasionally bluff-raise instead of folding, but never for the stack.
@@ -190,7 +231,7 @@ export function decideAction({ state, seats, seat, rng, trials = 220 }: BotConte
   if (strength > raiseBar && legal.canRaise && rng() < style.aggression) {
     const fraction = strength > 0.88 ? 1.0 : 0.6
     const amount = state.currentBet + Math.max(BIG_BLIND, pot * fraction)
-    return { kind: 'raise', amount: sizeBet(amount, strength, stack, legal, rng) }
+    return { kind: 'raise', amount: sizeBet(amount, strength, stack, style.gamble, legal, rng) }
   }
 
   return { kind: 'call' }
@@ -208,10 +249,12 @@ function sizeBet(
   target: number,
   strength: number,
   stack: number,
+  gamble: number,
   legal: LegalActions,
   rng: Rng,
 ): number {
-  const share = strength > 0.9 ? 1 : strength > 0.78 ? 0.5 : 0.3
+  const base = strength > 0.9 ? 1 : strength > 0.78 ? 0.5 : 0.3
+  const share = base + (1 - base) * gamble * 0.6
   const cap = legal.maxRaiseTo - stack * (1 - share)
   return snapToNamedBet(clampRaise(Math.min(target, cap), legal), legal, rng)
 }
@@ -224,17 +267,21 @@ function sizeBet(
 function preflopDecision(
   state: HandState,
   legal: LegalActions,
-  style: StyleProfile,
+  style: BotProfile,
   pot: number,
   hole: Card[],
+  position: number,
   rng: Rng,
 ): Action {
-  const chen = chenScore(hole)
+  // A weak player misjudges a starting hand just as they misjudge a flop.
+  const chen = chenScore(hole) + (rng() * 2 - 1) * style.noise * 18
   // A straddle raises the price of the hand for everybody, so measure the bet
   // against the largest forced blind rather than always against the big blind.
   const forced = Math.max(BIG_BLIND, ...state.straddles.map((s) => s.amount))
   const units = Math.max(1, state.currentBet / forced)
-  const need = style.openThreshold + Math.log2(units) * 3
+  // Late position is worth playing wider; only players who notice get the edge.
+  const positional = style.positionAware * (position - 0.5) * 3
+  const need = style.openThreshold + Math.log2(units) * 3 - positional
 
   if (legal.canCheck) {
     // In the blind with nothing to call: raise with a real hand, else see a flop.

@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { mulberry32, parseCards, cardCode } from './cards'
+import { Shoe, mulberry32, parseCards, cardCode } from './cards'
+import { applyAction, dealHand, livePlayers } from './hand'
+import { evenSeats, newHand } from './testkit'
 import {
-  describeStartingHand, equityVsRange, findOuts, showdownEquity,
+  advise, describeStartingHand, equityVsRange, findOuts, opponentRanges, showdownEquity,
 } from './coach'
 
 const rng = mulberry32(20260914)
@@ -157,5 +159,154 @@ describe('starting hands', () => {
     expect(describeStartingHand(parseCards('As Ks')).label).toBe('AK suited')
     expect(describeStartingHand(parseCards('9h 8c')).label).toBe('98 offsuit')
     expect(describeStartingHand(parseCards('7s 2h')).grade).toBe('Trash')
+  })
+})
+
+describe('what the coach claims pre-flop', () => {
+  /**
+   * The spot from #16: the recommendation is a call, and the raw EV of that
+   * call is negative because pre-flop equity ignores the three streets still
+   * to come. The coach must not offer the price as the reason.
+   */
+  function preflopCallWithNegativeEv() {
+    for (let seed = 1; seed <= 400; seed++) {
+      const seats = evenSeats(6)
+      const hand = newHand(seats, seed % 6)
+      dealHand(hand, seats, new Shoe(mulberry32(seed)))
+      const seat = hand.actingSeat
+      if (seat === null) continue
+      const advice = advise(hand, seats, seat, mulberry32(seed + 7), 400)
+      if (advice.recommendation.action === 'call' && advice.callEV < 0) return advice
+    }
+    throw new Error('no such spot found — the fixture assumption has changed')
+  }
+
+  it('does not offer the immediate price as the reason for a call it cannot pay', () => {
+    const advice = preflopCallWithNegativeEv()
+    const reasons = advice.recommendation.reasons.join(' ')
+
+    // It may state the break-even price — that is a true fact about the pot.
+    expect(reasons).toMatch(/break even/i)
+    // What it must not do is claim the hand is worth that price, while its own
+    // EV figure says the call loses money.
+    expect(reasons).not.toMatch(/worth playing for that price/i)
+    // It should say where the value actually comes from instead.
+    expect(reasons).toMatch(/after the flop/i)
+  })
+
+  it('still computes the EV, which the post-flop panel needs', () => {
+    const advice = preflopCallWithNegativeEv()
+    expect(Number.isFinite(advice.callEV)).toBe(true)
+    expect(advice.callEV).toBeLessThan(0)
+  })
+})
+
+describe('the range opponents are credited with', () => {
+  /** A hand where seat 1 raised from early position and seat 3 called late. */
+  function raisedPot() {
+    const seats = evenSeats(6)
+    const hand = newHand(seats, 5)
+    dealHand(hand, seats, new Shoe(mulberry32(3)))
+    applyAction(hand, seats, hand.actingSeat!, { kind: 'raise', amount: 200 })
+    while (hand.actingSeat !== null && hand.phase === 'acting') {
+      const seat = hand.actingSeat
+      if (seat === 0) break
+      applyAction(hand, seats, seat, { kind: 'call' })
+    }
+    return { hand, seats }
+  }
+
+  it('gives every live opponent its own floor rather than one for the table', () => {
+    const { hand } = raisedPot()
+    const ranges = opponentRanges(hand, 0)
+    expect(ranges.length).toBe(livePlayers(hand).length - 1)
+    expect(new Set(ranges).size).toBeGreaterThan(1)
+  })
+
+  it('credits nobody with a range before anyone has acted', () => {
+    const seats = evenSeats(6)
+    const hand = newHand(seats, 5)
+    dealHand(hand, seats, new Shoe(mulberry32(11)))
+
+    // Blinds are posted, not chosen. Crediting the table with hands worth
+    // playing here would invent information nobody has given away.
+    expect(opponentRanges(hand, 0).every((r) => r === 0)).toBe(true)
+  })
+
+  it('credits an early-position caller with more than a late one', () => {
+    const { hand } = raisedPot()
+    const live = livePlayers(hand).map((p) => p.seat)
+    const opponents = hand.order.filter((s) => s !== 0 && live.includes(s))
+    const ranges = opponentRanges(hand, 0)
+
+    // Among seats that did the same thing, position is the only difference
+    // left, and it must run the right way.
+    const callers = opponents
+      .map((seat, i) => ({ seat, floor: ranges[i], i }))
+      .filter(({ seat }) => hand.journal.some((e) => e.seat === seat && e.kind === 'call'))
+    expect(callers.length).toBeGreaterThan(1)
+    expect(callers[0].floor).toBeGreaterThan(callers.at(-1)!.floor)
+  })
+
+  it('credits a raiser with more than a caller', () => {
+    const { hand } = raisedPot()
+    const raiser = hand.journal.find((e) => e.kind === 'raise')!.seat
+    const caller = hand.journal.find((e) => e.kind === 'call')!.seat
+    const live = livePlayers(hand).map((p) => p.seat)
+    const opponents = hand.order.filter((s) => s !== 0 && live.includes(s))
+    const ranges = opponentRanges(hand, 0)
+
+    const at = (seat: number) => ranges[opponents.indexOf(seat)]
+    expect(at(raiser)).toBeGreaterThan(at(caller))
+  })
+
+  it('never exceeds what the Chen scale can produce', () => {
+    for (let seed = 1; seed <= 60; seed++) {
+      const seats = evenSeats(6)
+      const hand = newHand(seats, seed % 6)
+      dealHand(hand, seats, new Shoe(mulberry32(seed)))
+      for (const floor of opponentRanges(hand, 0)) {
+        expect(floor, `seed ${seed}`).toBeGreaterThanOrEqual(0)
+        expect(floor, `seed ${seed}`).toBeLessThanOrEqual(12)
+      }
+    }
+  })
+})
+
+describe('sampling opponents from a range', () => {
+  const hole = parseCards('Ah Kh')
+
+  it('actually lowers equity as the floor rises', () => {
+    // The old sampler re-dealt the whole table until everyone cleared the
+    // floor, which five-handed succeeded 0.6% of the time at a floor of 6 —
+    // so the floor made almost no difference to the answer. It must now.
+    const at = (floor: number) =>
+      equityVsRange(hole, [], 5, floor, 1200, mulberry32(7)).equity
+
+    const loose = at(0)
+    const mid = at(6)
+    const tight = at(10)
+    expect(mid).toBeLessThan(loose - 0.02)
+    expect(tight).toBeLessThan(mid - 0.02)
+  })
+
+  it('takes a floor per opponent', () => {
+    const oneTight = equityVsRange(hole, [], 5, [11, 0, 0, 0, 0], 1200, mulberry32(7)).equity
+    const allLoose = equityVsRange(hole, [], 5, 0, 1200, mulberry32(7)).equity
+    expect(oneTight).toBeLessThan(allLoose)
+  })
+
+  it('still answers when the floor is higher than any hand can reach', () => {
+    const r = equityVsRange(hole, [], 5, 99, 400, mulberry32(7))
+    expect(r.equity).toBeGreaterThan(0)
+    expect(r.equity).toBeLessThan(1)
+    expect(r.runouts).toBe(400)
+  })
+
+  it('deals every opponent a distinct hand', () => {
+    // A clash would quietly duplicate a card and make the pot easier to win.
+    const r = equityVsRange(hole, parseCards('2c 7d 9s'), 5, 8, 300, mulberry32(3))
+    expect(r.equity).toBeGreaterThan(0)
+    expect(r.win + r.tie).toBeLessThanOrEqual(1.000001)
   })
 })

@@ -5,9 +5,10 @@ import {
 } from '../engine/bnotw'
 import { cardCode } from '../engine/cards'
 import { shortHand } from '../engine/handEval'
-import { advise, pct, showdownEquity, type CoachAdvice, type EquityResult } from '../engine/coach'
+import { pct, showdownEquity, type EquityResult } from '../engine/coach'
 import { bestHand, legalActions, livePlayers, potTotal } from '../engine/hand'
 import { guardFor, type Guard, type GuardOptions } from '../engine/misclick'
+import { useAdvice } from './useAdvice'
 import type { Action, HandPlayer, HandState, Seat as SeatModel } from '../engine/types'
 import { Avatar } from './Avatar'
 import { CoachPanel } from './CoachPanel'
@@ -73,13 +74,16 @@ export function TableView({
   const seat = table.human.seat
   const myTurn = hand?.phase === 'acting' && hand.actingSeat === seat
 
-  // Work out the advice only when the decision is actually ours; the
-  // simulation is cheap but not free.
-  const advice = useMemo<CoachAdvice | null>(() => {
-    if (!coach || !myTurn || !hand) return null
-    return advise(hand, table.seats, seat, Math.random, 1500)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [coach, myTurn, version, hand, seat, table.seats])
+  /**
+   * The coach's verdict, worked out in the background while you read the spot.
+   *
+   * Computed whenever the decision is ours, not only in coach mode: tracking
+   * needs it the moment you act, and starting it now means it is almost always
+   * ready by then rather than being raced on the main thread after the tap.
+   */
+  const scoring = useAdvice(hand, table.seats, seat, myTurn, 1500)
+  // Only coach mode puts it on screen; the table uses it silently for tracking.
+  const advice = coach ? scoring.advice : null
 
   /**
    * What the X-ray odds actually depend on: who is still in, holding what, and
@@ -145,11 +149,9 @@ export function TableView({
   }, [myTurn, coach])
 
   const act = (action: Action) => {
-    // In coach mode the advice is already on screen. In normal play it is
-    // worked out here instead, so tracking costs nothing until the moment a
-    // decision is actually made and never slows a render.
-    const scored = advice
-      ?? (hand && tracker ? advise(hand, table.seats, seat, Math.random, 700) : null)
+    // Normally already waiting; `now()` only computes if you acted faster than
+    // the background pass.
+    const scored = scoring.now()
     if (coach && scored) coach.record(scored, action)
     if (hand && tracker && scored) tracker.recordDecision(hand, scored, action)
     game.act(action)
@@ -263,6 +265,7 @@ export function TableView({
       {coach && (
         <CoachPanel
           advice={advice}
+          pending={coach ? scoring.pending : false}
           review={coach.lastReview}
           narrator={narrator}
           position={positionLabel(hand, seat)}

@@ -142,14 +142,14 @@ export function dealSpot(street: Street, rng: Rng, options: DealOptions): DrillS
           }
         }
         // Not there yet: play our own seat as a bot would and carry on.
-        table.act(seat, decideAction({ state: hand, seats: table.seats, seat, rng }))
+        table.act(seat, decideAction({ state: hand, seats: table.seats, seat, rng, reads: table.reads }))
         continue
       }
 
       switch (hand.phase) {
         case 'acting': {
           const other = hand.actingSeat!
-          table.act(other, decideAction({ state: hand, seats: table.seats, seat: other, rng }))
+          table.act(other, decideAction({ state: hand, seats: table.seats, seat: other, rng, reads: table.reads }))
           break
         }
         case 'discard': {

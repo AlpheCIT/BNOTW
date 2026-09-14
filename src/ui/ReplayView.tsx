@@ -17,11 +17,14 @@ import { CardRow } from './pieces'
  * point of a replay.
  */
 export function ReplayView({
-  replay, decisions, onClose,
+  replay, decisions, onClose, note = '', onNote,
 }: {
   replay: HandReplay
   decisions: DecisionRecord[]
   onClose: () => void
+  /** What you wrote about this hand, if anything. */
+  note?: string
+  onNote?: (note: string) => void
 }) {
   const frames = useMemo(() => replayFrames(replay), [replay])
   const [index, setIndex] = useState(0)
@@ -188,7 +191,53 @@ export function ReplayView({
             <b className={heroNet(replay) >= 0 ? 'pos' : 'neg'}>{signedMoney(heroNet(replay))}</b>
           </div>
         )}
+
+        {onNote && <HandNote note={note} onNote={onNote} />}
       </div>
+    </div>
+  )
+}
+
+/**
+ * Why you did what you did.
+ *
+ * The tracker records what you did and whether the coach agreed; it has no
+ * idea why, and the reasoning is usually the thing that was actually wrong.
+ * "Called too light" cannot tell a misread price from a read on the villain
+ * from being on tilt from the hand before — and by tomorrow neither can you.
+ *
+ * Saved on blur rather than on every keystroke: a note is a sentence, not a
+ * stream, and writing through to storage per character is wasted work.
+ */
+function HandNote({ note, onNote }: { note: string; onNote: (note: string) => void }) {
+  const [draft, setDraft] = useState(note)
+  const [saved, setSaved] = useState(false)
+
+  const commit = () => {
+    if (draft.trim() === note.trim()) return
+    onNote(draft)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1600)
+  }
+
+  return (
+    <div className="field" style={{ marginTop: 12, marginBottom: 0 }}>
+      <label htmlFor="handnote">
+        Why you played it that way {saved && <span className="pos">· saved</span>}
+      </label>
+      <textarea
+        id="handnote"
+        value={draft}
+        placeholder="Had him on a draw. Wanted to charge it."
+        maxLength={600}
+        style={{ minHeight: 64 }}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+      />
+      <p className="sub" style={{ marginTop: 4 }}>
+        Kept with the hand, and kept ahead of everything else when old hands are
+        trimmed — it is the only part of a hand you cannot get back by playing more.
+      </p>
     </div>
   )
 }

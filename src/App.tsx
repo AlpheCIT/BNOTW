@@ -11,6 +11,7 @@ import {
   saveRoster, saveSettings,
   type CoachCreds, type RecordBook, type RosterState,
 } from './state/storage'
+import { backupIsOverdue, requestPersistentStorage, shareBackup } from './state/backup'
 import { CoachScorecard } from './ui/CoachPanel'
 import { DrillView } from './ui/DrillView'
 import { PlayersView } from './ui/Players'
@@ -102,6 +103,17 @@ export default function App() {
   const coach = useCoach()
   const tracker = useTracker()
   const update = useAppUpdate()
+  // Offered after a night is recorded, which is the one moment there is
+  // something new worth keeping and nobody is mid-hand.
+  const [offerBackup, setOfferBackup] = useState(false)
+
+  /**
+   * Ask the browser not to evict this origin under storage pressure.
+   *
+   * Best-effort: support varies and the answer can be no. Asked for once on
+   * load, and never reported as safety — Backup JSON is the safeguard.
+   */
+  useEffect(() => { void requestPersistentStorage() }, [])
   // Seeded from your real record, so the weakest street comes up most.
   const drill = useDrill(opponents, tracker.totals, prefs.playerName, tab === 'drill')
   // Two narrators: an explanation at the table is about one decision, and a
@@ -168,14 +180,26 @@ export default function App() {
       finalDexterLevel: table.dexterCount,
     }
 
-    setBook({ version: 1, nights: [night, ...book.nights] })
+    const nights = [night, ...book.nights]
+    setBook({ version: 1, nights })
     setOpenNightId(night.id)
     setShowCashOut(false)
     setTab('book')
+    // Only when a copy is actually owed. Offering after every night is how a
+    // prompt becomes something you dismiss without reading.
+    if (backupIsOverdue(nights)) setOfferBackup(true)
     // The night is settled and in the book, so the session is over. Dealing on
     // from the same stacks would let a second cash-out record it all again.
     game.restart({ ...prefs, opponents })
   }, [game, book.nights, setBook, prefs, opponents])
+
+  const takeBackup = useCallback(async () => {
+    const result = await shareBackup(
+      'bnotw-record-book.json',
+      JSON.stringify(book, null, 2),
+    )
+    if (result !== 'cancelled') setOfferBackup(false)
+  }, [book])
 
   return (
     <div className="app">
@@ -258,6 +282,31 @@ export default function App() {
         )}
         {tab === 'rules' && <RulesView />}
       </main>
+
+      {offerBackup && (
+        <div className="overlay" onClick={() => setOfferBackup(false)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>Keep a copy?</h2>
+            <p className="sub">
+              Your Record Book lives in this browser. It goes if you clear site
+              data, change browser, or lose the device — and a few nights have
+              gone in since the last copy.
+            </p>
+            <p className="sub">
+              This hands the file straight to Files, iCloud Drive, Mail or
+              wherever you keep things. On a computer it downloads instead.
+            </p>
+            <div className="row" style={{ gap: 8, marginTop: 14 }}>
+              <button className="btn primary" onClick={() => void takeBackup()}>
+                Save a copy
+              </button>
+              <button className="btn ghost" onClick={() => setOfferBackup(false)}>
+                Not now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showSettings && (
         <SettingsDialog

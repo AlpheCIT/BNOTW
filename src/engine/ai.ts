@@ -15,6 +15,7 @@ import { makeDeck } from './cards'
 import { evaluate } from './handEval'
 import { BIG_BLIND, CHIP_INCREMENT, NAMED_BETS, toChipIncrement } from './bnotw'
 import { legalActions, potTotal, livePlayers, type LegalActions } from './hand'
+import { NEUTRAL_AGGRESSION, readForMany, type Reads } from './reads'
 import type { Persona } from './persona'
 import type { Action, HandState, Seat } from './types'
 
@@ -32,6 +33,8 @@ export interface BotProfile {
   gamble: number
   /** Monte Carlo trials; better players get a sharper read. */
   trials: number
+  /** 0..1 — how much they adjust to the opponents in front of them. */
+  adapt: number
   /** How far their read of their own hand wobbles, either way. */
   noise: number
   /** How far they overrate their own hand. This is the expensive one. */
@@ -60,6 +63,16 @@ export const FIELD_BY_SKILL = [0.35, 0.5, 0.7, 0.9, 1]
 export const POSITION_BY_SKILL = [0, 0.25, 0.5, 0.8, 1]
 
 /**
+ * How much a profile adjusts to who it is playing.
+ *
+ * Deliberately zero below skill 3 and steep above it. Reading opponents is the
+ * last thing a player learns and the thing the top of the ladder had nothing
+ * of: without it, skills 3, 4 and 5 all play the same fixed strategy slightly
+ * more accurately, which is why 5 could not measurably beat 3.
+ */
+export const ADAPT_BY_SKILL = [0, 0, 0.15, 0.6, 1]
+
+/**
  * Skill controls *accuracy*, tendencies control *taste*.
  *
  * Crucially, a weak player is not a player who decides at random — noise that
@@ -82,6 +95,7 @@ export function profileOf(persona: Persona): BotProfile {
     optimism: OPTIMISM_BY_SKILL[i],
     fieldAwareness: FIELD_BY_SKILL[i],
     positionAware: POSITION_BY_SKILL[i],
+    adapt: ADAPT_BY_SKILL[i],
   }
 }
 
@@ -181,6 +195,11 @@ export interface BotContext {
   rng: Rng
   /** Override the persona's simulation count, e.g. to keep phones snappy. */
   trials?: number
+  /**
+   * What has been seen of the other seats this session. Absent means nobody
+   * has been watching, and every profile falls back to its fixed strategy.
+   */
+  reads?: Reads
 }
 
 /** Where a seat sits relative to the button: 0 is first to act, 1 is the button. */
@@ -196,7 +215,7 @@ function misread(value: number, style: BotProfile, rng: Rng): number {
   return Math.max(0.01, Math.min(0.99, shifted))
 }
 
-export function decideAction({ state, seats, seat, rng, trials }: BotContext): Action {
+export function decideAction({ state, seats, seat, rng, trials, reads }: BotContext): Action {
   const legal = legalActions(state, seats, seat)
   const p = state.players[seat]
   const style = profileOf(seats[seat].persona)
@@ -209,6 +228,15 @@ export function decideAction({ state, seats, seat, rng, trials }: BotContext): A
   const opponents = Math.max(1, livePlayers(state).length - 1)
   // A beginner plays a six-way pot as though it were three-handed.
   const perceived = Math.max(1, Math.round(opponents * style.fieldAwareness))
+
+  /**
+   * What the players still in this pot have shown, weighted by how much of
+   * that has actually been seen. `station` is positive against somebody who
+   * folds less than usual and negative against somebody who folds more, and
+   * `adapt` is what lets a profile act on it at all.
+   */
+  const read = readForMany(reads, livePlayers(state).map((p) => p.seat).filter((s) => s !== seat))
+  const tell = read.station * style.adapt
   const stack = seats[seat].stack
   const toCall = legal.callAmount
   const potOdds = toCall > 0 ? toCall / (pot + toCall) : 0
@@ -227,10 +255,17 @@ export function decideAction({ state, seats, seat, rng, trials }: BotContext): A
 
   // --- nothing to call: check, or take a stab at it ------------------------
   if (legal.canCheck) {
-    const valueBar = 0.55 + 0.05 * Math.min(perceived, 4)
+    // Against players who do not fold, value-bet thinner: hands that are not
+    // worth a bet against someone who folds correctly are worth one against
+    // someone who calls anyway. Against a table that folds too much, tighten
+    // up and take the pot with a bluff instead.
+    const valueBar = 0.55 + 0.05 * Math.min(perceived, 4) - tell * 0.12
+    // The same read read the other way: bluffing into somebody who never folds
+    // is the purest way there is to lose money.
+    const bluffChance = Math.max(0, style.bluff * (1 - tell))
     const wantsToBet =
       (strength > valueBar && rng() < style.aggression) ||
-      (strength < 0.3 && rng() < style.bluff)
+      (strength < 0.3 && rng() < bluffChance)
     if (!wantsToBet || !legal.canBet) return { kind: 'check' }
 
     const fraction = strength > 0.8 ? 0.7 : strength > 0.6 ? 0.55 : 0.4
@@ -241,13 +276,18 @@ export function decideAction({ state, seats, seat, rng, trials }: BotContext): A
   // --- facing a bet --------------------------------------------------------
   // Putting a big share of the stack at risk needs a hand, not just pot odds.
   const stackRisk = toCall / Math.max(1, toCall + stack)
-  const priced = strength >= potOdds * style.callTightness
+  // Somebody who bets at every pot is betting with less, so their bet is worth
+  // calling wider. Somebody who rarely bets means it when they do.
+  const betsTooMuch = (read.aggression - NEUTRAL_AGGRESSION) / NEUTRAL_AGGRESSION
+  const tightness = style.callTightness
+    * (1 - Math.max(-1, Math.min(1, betsTooMuch)) * read.confidence * style.adapt * 0.2)
+  const priced = strength >= potOdds * tightness
   const stackBar = (0.62 + stackRisk * 0.2) * (1 - style.gamble * 0.4)
   const worthTheStack = stackRisk < 0.4 || sober > stackBar
 
   if (!priced || !worthTheStack) {
     // Occasionally bluff-raise instead of folding, but never for the stack.
-    if (legal.canRaise && rng() < style.bluff * 0.4 && toCall < pot * 0.7) {
+    if (legal.canRaise && rng() < Math.max(0, style.bluff * (1 - tell)) * 0.4 && toCall < pot * 0.7) {
       const amount = clampRaise(state.currentBet + Math.max(BIG_BLIND, pot * 0.6), legal)
       if (amount < legal.maxRaiseTo) {
         return { kind: 'raise', amount: snapToNamedBet(amount, legal, rng) }

@@ -160,6 +160,33 @@ export async function readAllHands(): Promise<HandRecord[]> {
   }
 }
 
+/**
+ * Attach or change a note on a stored hand, found by when it was played.
+ *
+ * Returns false when the hand is not in the store — which can happen for a
+ * hand still only in memory, or one from a browser where IndexedDB is not
+ * available.
+ */
+export async function setNote(at: number, note: string): Promise<boolean> {
+  const db = await openDb()
+  if (!db) return false
+  try {
+    const tx = db.transaction(HANDS, 'readwrite')
+    const store = tx.objectStore(HANDS)
+    const index = store.index('at')
+    const row = await done<StoredHand | undefined>(index.get(at))
+    if (!row) return false
+    const trimmed = note.trim()
+    if (trimmed) row.note = trimmed
+    else delete row.note
+    store.put(row)
+    await committed(tx)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function countHands(): Promise<number> {
   const db = await openDb()
   if (!db) return 0

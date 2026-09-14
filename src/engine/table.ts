@@ -12,8 +12,9 @@ import {
 } from './bnotw'
 import {
   addStraddle, advanceStreet, applyAction, applyDiscard, createHand, dealHand,
-  livePlayers, resolveShowdown, settleDexter, straddleCandidates,
+  legalActions, livePlayers, resolveShowdown, settleDexter, straddleCandidates,
 } from './hand'
+import { emptyReads, noteAction, type Reads } from './reads'
 import { defaultRoster, personaFromArchetype, type Persona } from './persona'
 import type { PlayMode } from './playerStats'
 import type { Action, HandState, Seat, Street, Variant } from './types'
@@ -112,6 +113,13 @@ export class Table {
   startedAt: number = Date.now()
   handsPlayed = 0
 
+  /**
+   * What each seat has been seen doing this session, for the bots that are
+   * good enough to use it. Not part of the snapshot: a read is worth having
+   * within a night and stale across one, and nothing here is money.
+   */
+  reads: Reads = emptyReads()
+
   private shoe: Shoe | null = null
   private rng: Rng
   private version = 0
@@ -183,6 +191,7 @@ export class Table {
     this.handsSinceBomb = 0
     this.lastBombAt = Date.now()
     this.startedAt = Date.now()
+    this.reads = emptyReads()
     this.touch()
   }
 
@@ -362,6 +371,10 @@ export class Table {
   }
 
   act(seat: number, action: Action) {
+    // Noted before the action is applied: applying it is what changes whether
+    // there was a bet to face, which is the thing being recorded.
+    const legal = legalActions(this.hand!, this.seats, seat)
+    noteAction(this.reads, seat, action.kind, !legal.canCheck, legal.canRaise || legal.canBet)
     applyAction(this.hand!, this.seats, seat, action)
     this.touch()
   }

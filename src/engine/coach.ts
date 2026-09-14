@@ -116,17 +116,34 @@ export function showdownEquity(
 /**
  * Equity for one hand against opponents whose cards are unknown.
  *
- * Opponents are dealt from a *range* rather than uniformly at random: a
- * player still putting money in does not hold a random two cards, and pricing
- * a call against random hands is the single most common way to talk yourself
- * into a bad call. `minChen` is the weakest starting hand the opponents are
- * assumed to hold.
+ * Opponents are dealt from a *range* rather than uniformly at random: a player
+ * still putting money in does not hold a random two cards, and pricing a call
+ * against random hands is the single most common way to talk yourself into a
+ * bad call. `floors` is the weakest starting hand each opponent is credited
+ * with, on the Chen scale — one number to apply to everyone, or one per
+ * opponent.
+ *
+ * ### Why each opponent is sampled separately
+ *
+ * The obvious way to do this is to deal everyone at once and re-deal when
+ * somebody falls short. That fails badly multiway, and silently. Measured over
+ * all 1,326 starting combinations: a Chen floor of 6 accepts 25.5% of hands, so
+ * five opponents clear it together 0.108% of the time, and six re-deals find a
+ * legal set **0.6%** of the time. The other 99.4% of trials gave up and used a
+ * random deal — so the number reported as "equity against a range" was, at a
+ * full table, equity against random hands, which is the exact error the range
+ * model exists to prevent.
+ *
+ * Sampling each opponent on its own turns that product back into a per-player
+ * acceptance rate. To keep it exact rather than merely better, the legal pairs
+ * are enumerated once per call and drawn from directly, so a hand that meets
+ * the floor is found first time instead of stumbled upon.
  */
 export function equityVsRange(
   hole: Card[],
   board: Card[],
   opponents: number,
-  minChen: number,
+  floors: number | number[],
   trials: number,
   rng: Rng,
 ): EquityResult {
@@ -137,33 +154,72 @@ export function equityVsRange(
     return { equity: 1, win: 1, tie: 0, exact: false, runouts: 0 }
   }
 
+  const perOpponent = Array.from(
+    { length: opponents },
+    (_, i) => (Array.isArray(floors) ? floors[i] ?? floors[floors.length - 1] ?? 0 : floors),
+  )
+
+  // Every pair of unseen cards, scored once. 1,081 of them at most, against
+  // hundreds of trials each drawing several hands — cheap by comparison.
+  const pairs: { a: number; b: number; chen: number }[] = []
+  for (let a = 0; a < stub.length; a++) {
+    for (let b = a + 1; b < stub.length; b++) {
+      pairs.push({ a, b, chen: chenScore([stub[a], stub[b]]) })
+    }
+  }
+  // One list of legal pairs per distinct floor, shared by opponents that agree.
+  const legal = new Map<number, typeof pairs>()
+  for (const floor of new Set(perOpponent)) {
+    const allowed = floor > 0 ? pairs.filter((p) => p.chen >= floor) : pairs
+    // A floor nothing can meet would leave nothing to draw from; fall back to
+    // the whole deck rather than returning a number built on no samples.
+    legal.set(floor, allowed.length > 0 ? allowed : pairs)
+  }
+
+  const used = new Uint8Array(stub.length)
   let equity = 0
   let win = 0
   let tie = 0
 
   for (let t = 0; t < trials; t++) {
-    // Shuffle enough of the stub for this trial, re-drawing opponent hands
-    // that fall outside the assumed range (with a cap, so this always ends).
-    let attempts = 0
-    let ok = false
-    let opponentHands: Card[][] = []
-    while (!ok && attempts < 6) {
-      attempts++
-      for (let i = 0; i < draw; i++) {
-        const j = i + Math.floor(rng() * (stub.length - i))
-        ;[stub[i], stub[j]] = [stub[j], stub[i]]
-      }
-      opponentHands = []
-      ok = true
-      for (let o = 0; o < opponents; o++) {
-        const at = need + o * 2
-        const hand = [stub[at], stub[at + 1]]
-        if (minChen > 0 && chenScore(hand) < minChen) ok = false
-        opponentHands.push(hand)
-      }
+    used.fill(0)
+
+    // The board first, so every opponent is dealt around the same runout.
+    const runout: Card[] = []
+    for (let i = 0; i < need; i++) {
+      let at = Math.floor(rng() * stub.length)
+      while (used[at]) at = (at + 1) % stub.length
+      used[at] = 1
+      runout.push(stub[at])
     }
 
-    const full = [...board, ...stub.slice(0, need)]
+    const opponentHands: Card[][] = []
+    for (let o = 0; o < opponents; o++) {
+      const allowed = legal.get(perOpponent[o])!
+      let picked: { a: number; b: number } | null = null
+      // Only a dozen or so of the ~47 cards are spoken for, so a clash is
+      // uncommon and a handful of draws settles it.
+      for (let attempt = 0; attempt < 16 && !picked; attempt++) {
+        const candidate = allowed[Math.floor(rng() * allowed.length)]
+        if (!used[candidate.a] && !used[candidate.b]) picked = candidate
+      }
+      // Exhausted: walk the list for the first pair that fits. Slower, but it
+      // keeps the sample inside the range instead of abandoning it.
+      if (!picked) picked = allowed.find((p) => !used[p.a] && !used[p.b]) ?? null
+      if (!picked) {
+        // Nothing in range is left at all. Take any two cards rather than
+        // dropping an opponent and quietly making the pot smaller.
+        const free: number[] = []
+        for (let i = 0; i < stub.length && free.length < 2; i++) if (!used[i]) free.push(i)
+        if (free.length < 2) break
+        picked = { a: free[0], b: free[1] }
+      }
+      used[picked.a] = 1
+      used[picked.b] = 1
+      opponentHands.push([stub[picked.a], stub[picked.b]])
+    }
+
+    const full = [...board, ...runout]
     const mine = evaluate([...hole, ...full]).score
     let best = mine
     let ties = 0
@@ -351,15 +407,82 @@ export interface CoachAdvice {
 }
 
 /**
- * How strong a hand the players still in are credited with. The more it costs
- * to keep playing, the better the hands that are still out there.
+ * How strong a hand the players still in are credited with, one floor each.
+ *
+ * Three things move it, and the reason for each is worth stating because all
+ * of this is judgement rather than solved:
+ *
+ * - **What it costs.** The more somebody has put in, the better the hand they
+ *   are likely to hold. This is the whole of the old model.
+ * - **Where they are.** A raise from under the gun is a far stronger range than
+ *   the same raise on the button, because the button raises to steal and early
+ *   position cannot afford to.
+ * - **What they did.** Someone who raised is not the same as someone who
+ *   called, who is not the same as the big blind who got here for free.
+ *
+ * Returned in `state.order` — earliest to act first — for the live opponents,
+ * hero excluded. Plainly a
+ * heuristic: it will be confidently wrong in some spots, and it is still much
+ * closer than crediting everybody with the same hand.
  */
-function assumedRange(state: HandState): number {
+export function opponentRanges(state: HandState, heroSeat: number): number[] {
   const forced = Math.max(BIG_BLIND, ...state.straddles.map((s) => s.amount))
   const units = Math.max(1, state.currentBet / forced)
-  if (state.board.length === 0) return Math.min(11, Math.log2(units) * 4)
-  // Post-flop, anyone still in started with something they liked.
-  return units > 1 ? 6 : 4
+  // The old scalar, kept as the starting point: it was the part that worked.
+  const base = state.board.length === 0
+    ? Math.min(11, Math.log2(units) * 4)
+    : (units > 1 ? 6 : 4)
+
+  // Walked in `state.order` — earliest to act first — so the position term
+  // below and the documented return order are the same thing.
+  const live = new Set(livePlayers(state).map((p) => p.seat))
+  const opponents = state.order.filter((seat) => seat !== heroSeat && live.has(seat))
+
+  return opponents.map((seat) => {
+    let floor = base
+
+    // Position, as a fraction of the way round to the button. Worth about two
+    // Chen points end to end, the same weight position gets in the pre-flop
+    // advice itself.
+    const index = state.order.indexOf(seat)
+    if (index >= 0 && state.order.length > 1) {
+      const lateness = index / (state.order.length - 1)
+      floor += 1 - lateness * 2
+    }
+
+    floor += aggressionAdjustment(state, seat)
+
+    // Clamped to what the Chen scale can express: a floor above the best
+    // possible hand would leave nothing to deal.
+    return Math.max(0, Math.min(12, floor))
+  })
+}
+
+/** What this seat's own actions say about the hand behind them. */
+function aggressionAdjustment(state: HandState, seat: number): number {
+  let raised = false
+  let bet = false
+  let called = false
+  let voluntary = false
+
+  for (const entry of state.journal) {
+    if (entry.seat !== seat) continue
+    switch (entry.kind) {
+      case 'raise': raised = true; voluntary = true; break
+      case 'bet': bet = true; voluntary = true; break
+      case 'call': called = true; voluntary = true; break
+      case 'straddle': voluntary = true; break
+      default: break
+    }
+  }
+
+  if (raised) return 3
+  if (bet) return 2
+  if (called) return 0
+  // Still in without ever choosing to be: the big blind seeing a flop for
+  // free holds nothing in particular, and crediting it with a range is the
+  // fastest way to talk yourself out of a bet you should make.
+  return voluntary ? 0 : -2
 }
 
 export function advise(
@@ -374,9 +497,9 @@ export function advise(
   const opponents = Math.max(1, livePlayers(state).length - 1)
   const pot = potTotal(state)
   const toCall = legal.callAmount
-  const range = assumedRange(state)
+  const ranges = opponentRanges(state, seat)
 
-  const equity = equityVsRange(player.hole, state.board, opponents, range, trials, rng)
+  const equity = equityVsRange(player.hole, state.board, opponents, ranges, trials, rng)
   const outs = findOuts(player.hole, state.board)
   const made = state.board.length >= 3 ? bestHand(state, seat) : null
   const starting = describeStartingHand(player.hole)
@@ -399,7 +522,9 @@ export function advise(
     madeLabel: made ? describeHand(made) : null,
     outs,
     equity,
-    assumedRange: range,
+    assumedRange: ranges.length > 0
+      ? ranges.reduce((sum, r) => sum + r, 0) / ranges.length
+      : 0,
     pot,
     toCall,
     breakEven,
@@ -464,8 +589,9 @@ function preflopAdvice(
 
   if (starting.chen >= need) {
     reasons.push(
-      `Calling ${money(toCall)} into ${money(pot)} needs ${pct(breakEven)} to break even; ` +
-      `this hand is worth playing for that price.`,
+      `Calling ${money(toCall)} into ${money(pot)} needs ${pct(breakEven)} to break even ` +
+      'right now — but a hand like this is played for what it can make after the flop, ' +
+      'not for its share of the pot this second.',
     )
     return {
       action: 'call',

@@ -69,16 +69,29 @@ export function CoachPanel({
           </div>
         )}
         {facing && (
-          <>
-            <div className="coach-cell">
-              <b>{pct(advice.breakEven)}</b>
-              <span>Need to call</span>
-            </div>
-            <div className={`coach-cell ${advice.callEV >= 0 ? 'good' : 'bad'}`}>
-              <b>{signedMoney(Math.round(advice.callEV))}</b>
-              <span>EV of calling</span>
-            </div>
-          </>
+          <div className="coach-cell">
+            <b>{pct(advice.breakEven)}</b>
+            <span>Need to call</span>
+          </div>
+        )}
+        {/*
+          EV of calling is shown after the flop only.
+          
+          It is the value of a call that ends the hand there and runs to
+          showdown with no more betting. After the flop that is close enough to
+          the question being asked. Pre-flop it is not: three streets remain in
+          which you can fold and cap the loss or make a hand and get paid, so it
+          systematically understates exactly the hands — suited connectors,
+          suited broadway — that the pre-flop advice is built to play.
+          
+          Shown anyway, it sat beside a "Call" recommendation reading -$0.35 and
+          flatly contradicted it, which is worse than showing nothing.
+        */}
+        {facing && !preflop && (
+          <div className={`coach-cell ${advice.callEV >= 0 ? 'good' : 'bad'}`}>
+            <b>{signedMoney(Math.round(advice.callEV))}</b>
+            <span>EV of calling</span>
+          </div>
         )}
         <div className="coach-cell">
           <b>{money(advice.pot)}</b>
@@ -114,8 +127,10 @@ export function CoachPanel({
       <p className="sub" style={{ margin: 0, fontSize: 10.5 }}>
         Equity is {equity.exact ? 'counted exactly' : `sampled over ${equity.runouts.toLocaleString()} runouts`}
         {advice.assumedRange > 0
-          ? `, against opponents holding hands worth playing rather than random cards.`
-          : `.`}
+          ? ', against opponents credited with hands worth playing rather than random '
+            + 'cards — tighter from early position, tighter again for anyone who raised. '
+            + 'A heuristic, not a solver.'
+          : '.'}
         {advice.outs.count > 0 && ' Cards that improve you are not the same as cards that win — the equity figure already accounts for that.'}
       </p>
     </div>

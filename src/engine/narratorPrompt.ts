@@ -1,23 +1,13 @@
 /**
  * What the narrator is asked, and what it is allowed to answer with.
  *
- * Shared by both paths — the proxy that holds a server-side key, and the
- * direct browser call when someone brings their own. Divergence between the
- * two would mean the same spot gets explained differently depending on how you
- * happen to be connected, so there is exactly one copy of this.
+ * Shared by every provider and both connection paths. Divergence would mean
+ * the same spot gets explained differently depending on which model answered
+ * or how you happen to be connected, so there is exactly one copy of this.
  */
 
 import { z } from 'zod'
 import type { DecisionBrief, LeakBrief } from './brief'
-
-export const NARRATOR_MODEL = 'claude-opus-5'
-
-/**
- * Claude Opus 5's safety classifiers can decline a request. Rather than
- * surfacing that mid-hand, `fallbacks: "default"` re-runs it on Anthropic's
- * recommended substitute server-side, routed by refusal category.
- */
-export const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
 
 export const SHARED_RULES = `
 You are a poker coach explaining decisions at a $0.25/$0.50 home game.
@@ -77,11 +67,30 @@ export function leakPrompt(brief: LeakBrief): string {
   ].filter(Boolean).join('\n')
 }
 
-/** Pull the plain text out of a response's content blocks. */
-export function textOf(response: { content: Array<{ type: string; text?: string }> }): string {
-  return response.content
-    .filter((block) => block.type === 'text')
-    .map((block) => block.text ?? '')
-    .join('')
-    .trim()
-}
+/**
+ * The findings shape as plain JSON Schema, for providers whose structured
+ * output takes a schema rather than a zod object.
+ */
+export const FINDINGS_JSON_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['summary', 'findings'],
+  properties: {
+    summary: { type: 'string' },
+    findings: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 4,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'detail', 'fix'],
+        properties: {
+          title: { type: 'string' },
+          detail: { type: 'string' },
+          fix: { type: 'string' },
+        },
+      },
+    },
+  },
+} as const

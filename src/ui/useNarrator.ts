@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   NarratorError, chooseNarrator, narratorEndpoint,
-  type NarrationRequest, type NarrationResult, type NarratorMode,
+  type NarrationRequest, type NarrationResult, type NarratorMode, type ProviderConfig,
 } from '../engine/narrator'
 
 export interface NarratorApi {
@@ -27,13 +27,19 @@ export interface NarratorApi {
 
 export function useNarrator(
   endpointOverride?: string | null,
-  apiKey?: string | null,
+  config?: ProviderConfig | null,
 ): NarratorApi {
   const endpoint = useMemo(() => narratorEndpoint(endpointOverride), [endpointOverride])
-  const key = apiKey?.trim() ?? ''
+  // Depend on the fields rather than the object, so a caller that builds the
+  // config inline does not tear down the narrator on every render.
+  const id = config?.id ?? 'anthropic'
+  const model = config?.model ?? ''
+  const key = config?.apiKey?.trim() ?? ''
+  const baseUrl = config?.baseUrl ?? ''
+  const auth = config?.auth ?? 'bearer'
   const { via, narrator } = useMemo(
-    () => chooseNarrator(endpoint, key),
-    [endpoint, key],
+    () => chooseNarrator(endpoint, { id, model, apiKey: key, baseUrl, auth }),
+    [endpoint, id, model, key, baseUrl, auth],
   )
 
   const [result, setResult] = useState<NarrationResult | null>(null)

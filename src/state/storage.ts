@@ -6,6 +6,7 @@
  */
 
 import { defaultRoster, type Persona } from '../engine/persona'
+import type { ProviderId } from '../engine/providers/types'
 import { emptyTotals, type HandRecord, type PlayerTotals } from '../engine/playerStats'
 import type { GameNight } from './records'
 import { sortNights } from './records'
@@ -15,6 +16,7 @@ const SETTINGS_KEY = 'bnotw.settings.v1'
 const ROSTER_KEY = 'bnotw.roster.v1'
 const PLAYER_KEY = 'bnotw.player.v1'
 const COACH_KEY_KEY = 'bnotw.coachkey.v1'
+const COACH_CREDS_KEY = 'bnotw.coachcreds.v1'
 const COACH_KEY = 'bnotw.coach.v1'
 
 export interface RecordBook {
@@ -239,21 +241,60 @@ export function savePlayerLog(log: PlayerLog): void {
 /**
  * Stored on its own rather than inside the settings blob, so it can never ride
  * along in a Record Book export or a settings backup by accident.
+ *
+ * The model service is part of this record rather than of the settings,
+ * because the base URL and deployment name are as identifying as the key when
+ * the service is a private Azure endpoint.
  */
-export function loadCoachKey(): string {
-  if (typeof localStorage === 'undefined') return ''
-  try {
-    return localStorage.getItem(COACH_KEY_KEY) ?? ''
-  } catch {
-    return ''
-  }
+export interface CoachCreds {
+  provider: ProviderId
+  /** Model name, or on Azure the deployment name. Empty means the default. */
+  model: string
+  apiKey: string
+  /** Empty means the provider's own address. */
+  baseUrl: string
+  auth: 'bearer' | 'api-key'
 }
 
-export function saveCoachKey(key: string): void {
+export const NO_COACH_CREDS: CoachCreds = {
+  provider: 'anthropic',
+  model: '',
+  apiKey: '',
+  baseUrl: '',
+  auth: 'bearer',
+}
+
+export function loadCoachCreds(): CoachCreds {
+  if (typeof localStorage === 'undefined') return NO_COACH_CREDS
+  try {
+    const raw = localStorage.getItem(COACH_CREDS_KEY)
+    if (raw) {
+      const data = JSON.parse(raw) as Partial<CoachCreds>
+      return {
+        provider: data.provider === 'openai' ? 'openai' : 'anthropic',
+        model: typeof data.model === 'string' ? data.model : '',
+        apiKey: typeof data.apiKey === 'string' ? data.apiKey : '',
+        baseUrl: typeof data.baseUrl === 'string' ? data.baseUrl : '',
+        auth: data.auth === 'api-key' ? 'api-key' : 'bearer',
+      }
+    }
+    // Before providers, the only thing stored was an Anthropic key. Carry it
+    // over rather than making anyone re-enter it.
+    const legacy = localStorage.getItem(COACH_KEY_KEY)
+    if (legacy) return { ...NO_COACH_CREDS, apiKey: legacy }
+  } catch {
+    // Unreadable storage: the coach simply starts unconfigured.
+  }
+  return NO_COACH_CREDS
+}
+
+export function saveCoachCreds(creds: CoachCreds): void {
   if (typeof localStorage === 'undefined') return
   try {
-    if (key) localStorage.setItem(COACH_KEY_KEY, key)
-    else localStorage.removeItem(COACH_KEY_KEY)
+    if (creds.apiKey) localStorage.setItem(COACH_CREDS_KEY, JSON.stringify(creds))
+    else localStorage.removeItem(COACH_CREDS_KEY)
+    // The legacy key is only ever removed, never written: one home for this.
+    localStorage.removeItem(COACH_KEY_KEY)
   } catch {
     // Private browsing: the key simply will not be remembered.
   }

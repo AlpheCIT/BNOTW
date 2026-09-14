@@ -3,6 +3,9 @@
  *
  *   ANTHROPIC_API_KEY=sk-... npm run coach
  *
+ * Any other provider is configured the same way the deployed proxy is, with
+ * COACH_PROVIDER, COACH_MODEL, COACH_API_KEY and friends — see .env.example.
+ *
  * Then point the app at it, either with VITE_COACH_ENDPOINT in a .env.local or
  * by pasting the URL into Settings -> Coach narrator.
  *
@@ -57,6 +60,12 @@ const server = createServer(async (req, res) => {
 })
 
 server.listen(PORT, () => {
-  const keyed = process.env.ANTHROPIC_API_KEY ? 'with a key' : 'WITHOUT a key — set ANTHROPIC_API_KEY'
-  console.log(`Coach proxy on http://localhost:${PORT} (${keyed})`)
+  const provider = process.env.COACH_PROVIDER?.trim() || 'anthropic'
+  const hasKey = provider === 'anthropic'
+    ? Boolean(process.env.ANTHROPIC_API_KEY)
+    : Boolean(process.env.COACH_API_KEY || process.env.OPENAI_API_KEY)
+  const keyed = hasKey
+    ? 'with a key'
+    : `WITHOUT a key — set ${provider === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'COACH_API_KEY'}`
+  console.log(`Coach proxy on http://localhost:${PORT} (${provider}, ${keyed})`)
 })

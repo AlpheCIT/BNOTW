@@ -3,12 +3,13 @@ import {
   BUY_IN_CASH, BUY_IN_CHIPS, HIGH_ROLLER_FEE, money, owesHighRollerFee, signedMoney,
 } from './engine/bnotw'
 import type { Persona } from './engine/persona'
+import { PROVIDERS, providerInfo } from './engine/providers'
 import type { BombPotTrigger, TableSettings } from './engine/table'
 import { blankNight, makeId, type GameNight, type NightPlayer } from './state/records'
 import {
-  loadBook, loadCoachKey, loadRoster, loadSettings, saveBook, saveCoachKey,
+  loadBook, loadCoachCreds, loadRoster, loadSettings, saveBook, saveCoachCreds,
   saveRoster, saveSettings,
-  type RecordBook, type RosterState,
+  type CoachCreds, type RecordBook, type RosterState,
 } from './state/storage'
 import { CoachScorecard } from './ui/CoachPanel'
 import { PlayersView } from './ui/Players'
@@ -72,7 +73,7 @@ export default function App() {
   const [showCashOut, setShowCashOut] = useState(false)
   const [showCoachStats, setShowCoachStats] = useState(false)
   // Held apart from the rest of the settings so it never rides along in an export.
-  const [coachKey, setCoachKeyState] = useState<string>(() => loadCoachKey())
+  const [coachCreds, setCoachCredsState] = useState<CoachCreds>(() => loadCoachCreds())
 
   const opponents = useMemo(() => seatedPersonas(roster), [roster])
   const tableSettings = useMemo<Partial<TableSettings>>(
@@ -89,8 +90,15 @@ export default function App() {
   // Two narrators: an explanation at the table is about one decision, and a
   // review in My Game is about a whole history. Sharing one would have each
   // wipe the other's answer.
-  const tableNarrator = useNarrator(prefs.coachEndpoint, coachKey)
-  const reviewNarrator = useNarrator(prefs.coachEndpoint, coachKey)
+  const narratorConfig = useMemo(() => ({
+    id: coachCreds.provider,
+    model: coachCreds.model,
+    apiKey: coachCreds.apiKey,
+    baseUrl: coachCreds.baseUrl,
+    auth: coachCreds.auth,
+  }), [coachCreds])
+  const tableNarrator = useNarrator(prefs.coachEndpoint, narratorConfig)
+  const reviewNarrator = useNarrator(prefs.coachEndpoint, narratorConfig)
 
   useEffect(() => { saveSettings(prefs) }, [prefs])
   useEffect(() => {
@@ -103,9 +111,9 @@ export default function App() {
     saveBook(next)
   }, [])
 
-  const setCoachKey = useCallback((next: string) => {
-    setCoachKeyState(next)
-    saveCoachKey(next)
+  const setCoachCreds = useCallback((next: CoachCreds) => {
+    setCoachCredsState(next)
+    saveCoachCreds(next)
   }, [])
 
   const setRoster = useCallback((next: RosterState) => {
@@ -217,8 +225,8 @@ export default function App() {
       {showSettings && (
         <SettingsDialog
           prefs={prefs}
-          coachKey={coachKey}
-          onCoachKey={setCoachKey}
+          creds={coachCreds}
+          onCreds={setCoachCreds}
           onClose={() => setShowSettings(false)}
           onApply={(next, restart) => {
             setPrefs(next)
@@ -261,18 +269,21 @@ export default function App() {
 // ---------------------------------------------------------------------------
 
 function SettingsDialog({
-  prefs, coachKey, onCoachKey, onClose, onApply,
+  prefs, creds, onCreds, onClose, onApply,
 }: {
   prefs: Preferences
-  coachKey: string
-  onCoachKey: (key: string) => void
+  creds: CoachCreds
+  onCreds: (creds: CoachCreds) => void
   onClose: () => void
   onApply: (prefs: Preferences, restart: boolean) => void
 }) {
   const [draft, setDraft] = useState(prefs)
-  const [keyDraft, setKeyDraft] = useState(coachKey)
   const [showKey, setShowKey] = useState(false)
   const needsRestart = draft.playerName !== prefs.playerName
+  const info = providerInfo(creds.provider)
+  // Saved as you type: there is no Save button on this half of the dialog,
+  // and a key you typed but never committed would look set and not work.
+  const setCreds = (patch: Partial<CoachCreds>) => onCreds({ ...creds, ...patch })
 
   const set = <K extends keyof Preferences>(key: K, value: Preferences[K]) =>
     setDraft((d) => ({ ...d, [key]: value }))
@@ -292,16 +303,38 @@ function SettingsDialog({
         </div>
 
         <div className="field">
-          <label htmlFor="coachkey">Anthropic API key</label>
+          <label htmlFor="coachprovider">Coach model service</label>
+          <select
+            id="coachprovider"
+            value={creds.provider}
+            onChange={(e) => setCreds({
+              provider: e.target.value as CoachCreds['provider'],
+              // All of it belongs to the service, the key most of all: carrying
+              // a key across would send one vendor's credential to another.
+              apiKey: '',
+              model: '',
+              baseUrl: '',
+              auth: 'bearer',
+            })}
+          >
+            {PROVIDERS.map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
+          <p className="sub" style={{ marginTop: 4 }}>{info.note}</p>
+        </div>
+
+        <div className="field">
+          <label htmlFor="coachkey">API key</label>
           <div className="row" style={{ flexWrap: 'nowrap', gap: 6 }}>
             <input
               id="coachkey"
               type={showKey ? 'text' : 'password'}
               autoComplete="off"
               spellCheck={false}
-              placeholder="sk-ant-…"
-              value={keyDraft}
-              onChange={(e) => { setKeyDraft(e.target.value); onCoachKey(e.target.value.trim()) }}
+              placeholder={creds.provider === 'anthropic' ? 'sk-ant-…' : 'the service key'}
+              value={creds.apiKey}
+              onChange={(e) => setCreds({ apiKey: e.target.value.trim() })}
             />
             <button
               className="btn small ghost"
@@ -311,11 +344,11 @@ function SettingsDialog({
             >
               {showKey ? 'Hide' : 'Show'}
             </button>
-            {keyDraft && (
+            {creds.apiKey && (
               <button
                 className="btn small danger"
                 type="button"
-                onClick={() => { setKeyDraft(''); onCoachKey('') }}
+                onClick={() => setCreds({ apiKey: '' })}
               >
                 Clear
               </button>
@@ -327,21 +360,79 @@ function SettingsDialog({
             patterns. Everything else — the equity, the outs, the pot odds, the
             rating — is computed on this device and needs nothing.
           </p>
-          {keyDraft && !draft.coachEndpoint.trim() && (
-            <div className="warn">
-              This key is stored in this browser and sent straight to Anthropic from
-              this device. That is fine for your own install; it is not something to
-              put on a phone you hand round the table, because anything with access
-              to the browser can read it. For shared use, run the proxy below instead
-              and the key stays on the server.
-            </div>
-          )}
-          {keyDraft && draft.coachEndpoint.trim() && (
-            <div className="warn">
-              An endpoint is set below, so that is being used and this key is
-              ignored — the proxy keeps the key off this device.
-            </div>
-          )}
+        </div>
+
+        <div className="field">
+          <label htmlFor="coachmodel">Model</label>
+          <input
+            id="coachmodel"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={info.modelHint}
+            value={creds.model}
+            onChange={(e) => setCreds({ model: e.target.value.trim() })}
+          />
+          <p className="sub" style={{ marginTop: 4 }}>
+            {creds.provider === 'anthropic'
+              ? 'Leave this empty for the default.'
+              : 'Required. Model names change often, so check the service\u2019s current list.'}
+          </p>
+        </div>
+
+        {creds.provider !== 'anthropic' && (
+          <div className="field">
+            <label htmlFor="coachbase">Service address</label>
+            <input
+              id="coachbase"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="https://api.openai.com/v1"
+              value={creds.baseUrl}
+              onChange={(e) => setCreds({ baseUrl: e.target.value.trim() })}
+            />
+            <label className="inline-check" style={{ marginTop: 8 }}>
+              <input
+                type="checkbox"
+                checked={creds.auth === 'api-key'}
+                onChange={(e) => setCreds({ auth: e.target.checked ? 'api-key' : 'bearer' })}
+              />
+              <span>Send the key as an <code>api-key</code> header (Azure OpenAI)</span>
+            </label>
+            <p className="sub" style={{ marginTop: 4 }}>
+              Leave the address empty for OpenAI itself. For Azure, paste the full
+              deployment URL including its api-version. Anything else that speaks the
+              OpenAI chat format — Groq, Together, OpenRouter, a server on your own
+              machine — works here too.
+            </p>
+          </div>
+        )}
+
+        {creds.apiKey && !creds.model && creds.provider !== 'anthropic' && (
+          <div className="warn">
+            Explanations stay off until a model is named — this service has no
+            default the app could pick for you.
+          </div>
+        )}
+        {creds.apiKey && !draft.coachEndpoint.trim() && (
+          <div className="warn">
+            This key is stored in this browser and sent straight to the service from
+            this device. That is fine for your own install; it is not something to
+            put on a phone you hand round the table, because anything with access
+            to the browser can read it. For shared use, run the proxy below instead
+            and the key stays on the server.
+          </div>
+        )}
+        {creds.apiKey && draft.coachEndpoint.trim() && (
+          <div className="warn">
+            An endpoint is set below, so that is being used and this key is
+            ignored — the proxy keeps the key off this device.
+          </div>
+        )}
+
+        <div className="warn" style={{ background: 'transparent' }}>
+          AWS Bedrock and Google Vertex AI are not in this list on purpose: both
+          authenticate with signed requests rather than a bearer key, which a
+          browser cannot do safely. Put either behind the proxy instead.
         </div>
 
         <h2 style={{ marginTop: 18 }}>Table Settings</h2>

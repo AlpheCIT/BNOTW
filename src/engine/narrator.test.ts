@@ -4,6 +4,7 @@ import { advise } from './coach'
 import { decisionBrief, leakBrief } from './brief'
 import {
   NarratorError, chooseNarrator, directNarrator, httpNarrator, narratorEndpoint,
+  type ProviderConfig,
   offlineNarrator,
 } from './narrator'
 import { accumulate, emptyTotals, type HandRecord } from './playerStats'
@@ -281,9 +282,30 @@ describe('choosing how to reach the narrator', () => {
   })
 })
 
+/** A browser-key config for Claude, which is what most of these exercise. */
+function claude(apiKey: string): ProviderConfig {
+  return { id: 'anthropic', model: '', apiKey }
+}
+
+describe('choosing a narrator with a provider config', () => {
+  it('will not go live without the model a service has no default for', () => {
+    expect(chooseNarrator('', { id: 'openai', model: '', apiKey: 'sk-1' }).via).toBe('none')
+    expect(chooseNarrator('', { id: 'openai', model: 'gpt-x', apiKey: 'sk-1' }).via).toBe('key')
+  })
+
+  it('lets Anthropic run on its default model', () => {
+    expect(chooseNarrator('', { id: 'anthropic', model: '', apiKey: 'sk-ant-1' }).via).toBe('key')
+  })
+
+  it('still prefers the proxy over any key', () => {
+    expect(chooseNarrator('https://coach.example/api', { id: 'openai', model: 'm', apiKey: 'k' }).via)
+      .toBe('proxy')
+  })
+})
+
 describe('the direct browser narrator', () => {
   it('refuses to run without a key', async () => {
-    const narrator = directNarrator('')
+    const narrator = directNarrator(claude(''))
     expect(narrator.available).toBe(false)
     await expect(narrator.narrate({ kind: 'leaks', brief: {} as never }))
       .rejects.toThrow(/No API key/)
@@ -310,7 +332,7 @@ describe('the direct browser narrator', () => {
   it('turns a rejected key into a clear, non-retryable error', async () => {
     const mod = await withStubbedSdk(401)
     const { advice } = spot()
-    const error = await mod.directNarrator('sk-ant-wrong')
+    const error = await mod.directNarrator(claude('sk-ant-wrong'))
       .narrate({ kind: 'decision', brief: decisionBrief(advice, 'on the button') })
       .catch((e: unknown) => e)
     expect(error).toBeInstanceOf(mod.NarratorError)
@@ -320,11 +342,39 @@ describe('the direct browser narrator', () => {
     vi.resetModules()
   })
 
+  it('routes to whichever provider the config names', async () => {
+    const calls: string[] = []
+    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+      calls.push(String(url))
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'Fold.' } }] }))
+    }) as unknown as typeof fetch
+    const { advice } = spot()
+
+    const answer = await directNarrator({
+      id: 'openai', model: 'gpt-x', apiKey: 'sk-1', baseUrl: 'https://elsewhere.test/v1',
+    }).narrate({ kind: 'decision', brief: decisionBrief(advice, 'on the button') })
+
+    expect(answer.text).toBe('Fold.')
+    expect(calls).toEqual(['https://elsewhere.test/v1/chat/completions'])
+  })
+
+  it('passes a provider failure through with its retry advice intact', async () => {
+    globalThis.fetch = vi.fn(async () => new Response('{}', { status: 429 })) as unknown as typeof fetch
+    const { advice } = spot()
+
+    const error = await directNarrator({ id: 'openai', model: 'm', apiKey: 'k' })
+      .narrate({ kind: 'decision', brief: decisionBrief(advice, 'on the button') })
+      .catch((e: unknown) => e as NarratorError)
+
+    expect(error).toBeInstanceOf(NarratorError)
+    expect((error as NarratorError).retryable).toBe(true)
+  })
+
   it('marks a rate limit and a server fault as worth retrying', async () => {
     for (const status of [429, 503]) {
       const mod = await withStubbedSdk(status)
       const { advice } = spot()
-      const error = await mod.directNarrator('sk-ant-test')
+      const error = await mod.directNarrator(claude('sk-ant-test'))
         .narrate({ kind: 'decision', brief: decisionBrief(advice, 'on the button') })
         .catch((e: unknown) => e as NarratorError)
       expect((error as NarratorError).retryable, `status ${status}`).toBe(true)

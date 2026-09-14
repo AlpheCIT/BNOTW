@@ -15,7 +15,7 @@ Five parts:
 - **My Game** — every hand you play, tracked: your tendencies in the terms a
   poker tracker uses, where your decisions go wrong, and a rating built on
   decision quality rather than results.
-- **Explanations** (optional) — with a narrator endpoint configured, the coach
+- **Explanations** (optional) — with a model service configured, the coach
   can put its reasoning into words, answer follow-up questions, and review your
   whole history for patterns.
 - **Players** — the roster of regulars, each with a face and a way of playing
@@ -346,9 +346,9 @@ narrator does not know it.
 
 ### Two ways to connect
 
-**An API key, in Settings → Your Profile.** Paste an Anthropic key and it works
-immediately, with no server to run. The app calls Anthropic directly from the
-browser.
+**An API key, in Settings → Your Profile.** Pick a service, paste a key and it
+works immediately, with no server to run. The app calls the service directly
+from the browser.
 
 Be clear-eyed about what that means: a key held in a browser is readable by
 anything with access to the page — a browser extension, anyone using the device,
@@ -361,8 +361,60 @@ export or a settings backup.
 lives in the browser. When both are configured the proxy wins, because
 preferring the browser key would quietly undo the only reason to run one.
 
-The SDK is loaded on demand, so leaving explanations off costs nothing in the
+The provider, and whatever SDK it needs, is loaded on demand — so leaving
+explanations off, or using a provider that needs no SDK, costs nothing in the
 bundle.
+
+### Which services work
+
+| Service | Browser key | Proxy | How |
+| --- | --- | --- | --- |
+| Anthropic (Claude) | yes | yes | Pick Anthropic; leave the model empty for the default |
+| OpenAI | yes | yes | Pick OpenAI-compatible; leave the address empty |
+| Azure OpenAI | possible, not advised | yes | Paste the full deployment URL, tick the `api-key` header |
+| Groq, Together, OpenRouter | yes | yes | Pick OpenAI-compatible; set the address |
+| A model on your own machine | yes | yes | Point the address at it — llama.cpp, Ollama, LM Studio and vLLM all serve this format |
+| AWS Bedrock | **no** | needs an adapter | Requests are SigV4-signed; see below |
+| Google Vertex AI | **no** | needs an adapter | Authenticates with Google credentials; see below |
+
+Everything after the first row goes through one adapter, because OpenAI, Azure,
+Groq, Together, OpenRouter and every local server take the same request shape
+and differ only in address, auth header and model name. It is written against
+the REST format with plain `fetch` rather than an SDK: no extra dependency,
+nothing added to the bundle, and the wire format is the one thing they all
+genuinely agree on.
+
+**Bedrock and Vertex are the real exceptions, and not out of laziness.** Neither
+authenticates with a bearer key. Bedrock signs every request with AWS SigV4,
+which needs your AWS secret access key present to compute the signature — a
+browser holding that is far worse than a browser holding a model key, because
+the same credential reaches the rest of the account. Vertex wants a Google OAuth
+token from application-default credentials, which a browser has no way to
+obtain. Both belong behind the proxy, where the credential stays on the server
+and the SDK can do its own signing. `src/engine/providers/` is where such an
+adapter would go — the interface it has to satisfy is two methods.
+
+Model names change often, and the ones in the UI are hints rather than a
+verified list. Check the service's own current documentation before assuming a
+name is right.
+
+### Adding a provider
+
+The seam is `src/engine/providers/`. A provider is one file exporting a factory
+that returns `{ explain, review }`, plus one entry in `PROVIDERS` so it appears
+in the picker. Nothing above that directory — not the app, not the briefs, not
+the wire contract — knows which model answered.
+
+```
+src/engine/providers/
+  types.ts             the Provider interface and the shared error mapping
+  anthropic.ts         Claude, via the official SDK
+  openaiCompatible.ts  anything speaking the OpenAI chat format
+  index.ts             the catalogue and the factory
+```
+
+Both the browser and the proxy use the same adapters, so a provider added once
+works on both paths.
 
 ### Running the proxy
 
@@ -378,22 +430,35 @@ Vercel Edge, Netlify, Cloudflare Workers and Deno Deploy all speak.
 one code path to keep correct. The endpoint can also be pasted into
 Settings → Coach narrator instead of being baked in at build time.
 
-It calls `claude-opus-5`, with `fallbacks: "default"` enabled so a request the
-safety classifiers decline is re-run on Anthropic's recommended substitute
-server-side rather than surfacing a refusal mid-hand. The leak review uses
-structured outputs so the findings can be rendered rather than parsed out of
-prose.
+Which model the proxy uses is environment, not code:
 
-Swapping providers should not touch the app: `src/engine/narration.ts` is the
-wire contract, and the model lives entirely behind the proxy.
+| Variable | Meaning |
+| --- | --- |
+| `COACH_PROVIDER` | `anthropic` (default) or `openai` |
+| `COACH_MODEL` | Model name, or the Azure deployment name. Optional on Anthropic |
+| `ANTHROPIC_API_KEY` | Read by the Anthropic SDK itself |
+| `COACH_API_KEY` | The key for any other provider (`OPENAI_API_KEY` also works) |
+| `COACH_BASE_URL` | The service address, when it is not OpenAI |
+| `COACH_AUTH` | `api-key` for Azure; anything else means a bearer token |
 
-**Caveat:** no request has been made against the real Anthropic API — there were
-no credentials in the build environment. The client path *is* exercised: with a
-key set, the SDK builds and sends a real request (verified against an intercepted
-`api.anthropic.com`, key header and all), and the proxy path is verified against
-a stub speaking the same wire contract. What remains unproven is whether the
-service accepts the specific parameters — the model id, the fallback beta — so
-treat the first real call as the test.
+On Anthropic it defaults to `claude-opus-5`, with `fallbacks: "default"` enabled
+so a request the safety classifiers decline is re-run on Anthropic's recommended
+substitute server-side rather than surfacing a refusal mid-hand, and the leak
+review uses structured outputs so the findings can be rendered rather than
+parsed out of prose. The OpenAI-compatible path asks for JSON and then verifies
+it, because schema enforcement varies across the services behind that one
+format; if a service ignores the request and answers in prose, the prose becomes
+the summary rather than an error.
+
+**Caveat, and it matters:** no request has been made against any real provider —
+there were no credentials in the build environment. What *is* exercised is
+everything up to the wire: with a key set the Anthropic SDK builds and sends a
+real request (verified against an intercepted `api.anthropic.com`, key header
+and all), and the OpenAI-compatible path is tested against a stub that checks
+the URL, the auth header and the request body it produces. What remains unproven
+is whether each service accepts the specific parameters — the model id, the
+fallback beta, the JSON response format — so treat the first real call against
+any provider as the test.
 
 ## Where the data lives
 
@@ -424,6 +489,7 @@ src/
     brief.ts       the facts a narrator is allowed to talk about
     narration.ts   the wire contract between app and proxy
     narrator.ts    the browser side of it
+    providers/     one file per model service, behind a two-method interface
     playerStats.ts your tendencies, your rating and the honest error bars
   state/           the Record Book: settlement maths, storage, exports
   ui/              React components

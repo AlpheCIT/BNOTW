@@ -753,6 +753,24 @@ table.grid tr.winner td { background: rgba(95, 208, 138, 0.08); }
 
 .field textarea { min-height: 150px; resize: vertical; line-height: 1.6; font-size: 13.5px; }
 
+/* A checkbox sitting inside a field, which the label rules above would
+   otherwise render as an uppercase caption and stretch full width. */
+.field label.inline-check {
+  flex-direction: row;
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  font-size: 12.5px;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 500;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+
+.field label.inline-check input { width: auto; flex: none; }
+.field label.inline-check code { font-size: 11.5px; }
+
 .cell-input {
   background: #0b1310;
   border: 1px solid var(--line);

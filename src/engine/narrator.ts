@@ -11,9 +11,11 @@
  */
 
 import type { NarrationRequest, NarrationResult } from './narration'
+import type { Provider, ProviderConfig } from './providers/types'
 
 export type { NarrationRequest, NarrationResult } from './narration'
 export type { LeakFinding, Turn } from './narration'
+export type { ProviderConfig, ProviderId } from './providers/types'
 
 export interface Narrator {
   /** False when no endpoint is configured; callers must handle this. */
@@ -74,78 +76,74 @@ export function httpNarrator(endpoint: string): Narrator {
 }
 
 /**
- * Call Anthropic straight from the browser with the player's own key.
+ * Call a model service straight from the browser with the player's own key.
  *
  * This is the convenient path, not the safe one. A key held in a browser is
  * readable by anything with access to the page — a browser extension, anyone
  * on the device, any script that ever gets injected — so it suits a personal
  * install and not an app handed round the group. The proxy exists for that.
  *
- * The SDK is imported on demand so nobody who leaves this off pays for it in
- * their bundle.
+ * Which service answers is the provider's business; this function only knows
+ * that something with `explain` and `review` can be built from a config. The
+ * provider, and whatever SDK it needs, is loaded on demand so nobody who
+ * leaves this off pays for it in their bundle.
  */
-export function directNarrator(apiKey: string): Narrator {
+export function directNarrator(config: ProviderConfig): Narrator {
+  // Built once and reused, so a conversation does not re-import the SDK and
+  // re-open a client on every question.
+  let pending: Promise<Provider> | null = null
+
   return {
-    available: Boolean(apiKey),
+    available: Boolean(config.apiKey),
     async narrate(request, signal) {
-      if (!apiKey) throw new NarratorError('No API key is set.', false)
-
-      const [{ default: Anthropic }, { zodOutputFormat }, prompts] = await Promise.all([
-        import('@anthropic-ai/sdk'),
-        import('@anthropic-ai/sdk/helpers/zod'),
-        import('./narratorPrompt'),
-      ])
-
-      const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true })
+      if (!config.apiKey) throw new NarratorError('No API key is set.', false)
 
       try {
-        if (request.kind === 'leaks') {
-          const response = await client.messages.parse({
-            model: prompts.NARRATOR_MODEL,
-            max_tokens: 4000,
-            output_config: { format: zodOutputFormat(prompts.FindingsSchema) },
-            messages: [{ role: 'user', content: prompts.leakPrompt(request.brief) }],
-          }, { signal })
-          if (response.stop_reason === 'refusal') {
-            throw new NarratorError('The model declined to answer that one.', false)
-          }
-          const parsed = response.parsed_output
-          if (!parsed) throw new NarratorError('The review came back unreadable.', true)
-          return { text: parsed.summary, findings: parsed.findings }
+        if (!pending) {
+          const { createProvider } = await import('./providers')
+          pending = createProvider(config)
         }
+        const provider = await pending
 
-        const history = (request.history ?? []).slice(-6).map((turn) => ({
-          role: turn.role,
-          content: turn.text,
-        }))
-        const response = await client.beta.messages.create({
-          model: prompts.NARRATOR_MODEL,
-          max_tokens: 1200,
-          betas: [prompts.FALLBACK_BETA],
-          fallbacks: 'default',
-          messages: [
-            ...history,
-            { role: 'user', content: prompts.decisionPrompt(request.brief, request.question) },
-          ],
-        }, { signal })
-        if (response.stop_reason === 'refusal') {
-          throw new NarratorError('The model declined to answer that one.', false)
+        if (request.kind === 'leaks') {
+          const answer = await provider.review(request.brief, { signal })
+          return { text: answer.summary, findings: answer.findings }
         }
-        return { text: prompts.textOf(response) }
+        const text = await provider.explain(request.brief, {
+          question: request.question,
+          history: request.history,
+          signal,
+        })
+        return { text }
       } catch (cause) {
-        if (cause instanceof NarratorError) throw cause
+        // A failed build must not be cached, or one bad key poisons the rest
+        // of the session even after it is corrected.
+        pending = null
         if ((cause as Error)?.name === 'AbortError') throw cause
-        const status = (cause as { status?: number })?.status
-        if (status === 401) throw new NarratorError('That API key was rejected.', false)
-        if (status === 429) throw new NarratorError('Rate limited — try again shortly.', true)
-        if (status && status >= 500) throw new NarratorError('Anthropic had a problem. Try again.', true)
-        throw new NarratorError(
-          (cause as Error)?.message || 'The coach could not answer.',
-          false,
-        )
+        if (cause instanceof NarratorError) throw cause
+        if (isProviderError(cause)) {
+          throw new NarratorError(cause.message, cause.retryable)
+        }
+        throw new NarratorError((cause as Error)?.message || 'The coach could not answer.', false)
       }
     },
   }
+}
+
+/**
+ * Recognise a provider failure by shape rather than by `instanceof`.
+ *
+ * The provider module is loaded dynamically, and under a bundler or a test
+ * that resets modules the class it exports need not be the same object this
+ * module would compare against. The shape is the stable part.
+ */
+function isProviderError(cause: unknown): cause is { message: string; retryable: boolean } {
+  return (
+    Boolean(cause)
+    && typeof cause === 'object'
+    && (cause as { name?: string }).name === 'ProviderError'
+    && typeof (cause as { retryable?: unknown }).retryable === 'boolean'
+  )
 }
 
 /** Nothing configured: every call fails the same way, and callers say so. */
@@ -167,11 +165,29 @@ export type NarratorMode = 'proxy' | 'key' | 'none'
  */
 export function chooseNarrator(
   endpoint: string,
-  apiKey: string,
+  config: ProviderConfig | string,
 ): { via: NarratorMode; narrator: Narrator } {
   const url = endpoint.trim()
-  const key = apiKey.trim()
   if (url) return { via: 'proxy', narrator: httpNarrator(url) }
-  if (key) return { via: 'key', narrator: directNarrator(key) }
+
+  const resolved: ProviderConfig = typeof config === 'string'
+    ? { id: 'anthropic', model: '', apiKey: config.trim() }
+    : { ...config, apiKey: config.apiKey.trim(), model: config.model.trim() }
+  if (resolved.apiKey && isUsable(resolved)) {
+    return { via: 'key', narrator: directNarrator(resolved) }
+  }
   return { via: 'none', narrator: offlineNarrator }
+}
+
+/**
+ * Whether a config has enough to make a call.
+ *
+ * Only Anthropic has a default model worth assuming; everywhere else the model
+ * is the deployment or the exact name, and an empty one would fail at the
+ * service with a message about a missing parameter rather than about the
+ * field the player left blank.
+ */
+export function isUsable(config: ProviderConfig): boolean {
+  if (!config.apiKey.trim()) return false
+  return config.id === 'anthropic' || Boolean(config.model.trim())
 }

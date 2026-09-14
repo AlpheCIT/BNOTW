@@ -7,6 +7,13 @@
   command = "npm run build"
   publish = "dist"
 
+[build.environment]
+  # Pinned rather than left to the platform default: Vite 7 and the React
+  # plugin both require node ^20.19 || >=22.12, and an older default fails the
+  # install with an engine error that reads like a dependency problem. 22 is
+  # what this is developed and tested on.
+  NODE_VERSION = "22"
+
 # Asset filenames are content-hashed, so they can be cached forever.
 [[headers]]
   for = "/assets/*"

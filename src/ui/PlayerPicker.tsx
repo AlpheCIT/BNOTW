@@ -14,8 +14,8 @@
 
 import { useState } from 'react'
 import {
-  EXPERIENCE, PROFILE_COLOURS, displayName, initialsFor, makeProfile,
-  type Experience, type LocalProfile,
+  EXPERIENCE, PROFILE_COLOURS, displayName, experienceMeta, initialsFor,
+  makeProfile, type Experience, type LocalProfile,
 } from '../state/profiles'
 
 export function PlayerChip({
@@ -138,10 +138,15 @@ export function PlayerForm({
     setDraft((prev) => ({ ...prev, [key]: value }))
 
   const named = draft.name.trim().length > 0
+  const save = () => { if (named) onSave({ ...draft, name: draft.name.trim() }) }
 
   return (
     <div className="overlay solid" onClick={onCancel}>
-      <div className="dialog wide" onClick={(e) => e.stopPropagation()}>
+      <form
+        className="dialog wide"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => { e.preventDefault(); save() }}
+      >
         <h2>{editing ? 'Edit player' : 'New player'}</h2>
 
         <div className="field">
@@ -199,56 +204,64 @@ export function PlayerForm({
           </div>
         </div>
 
+        {/*
+          Four buttons and one line of description, rather than four cards
+          each carrying their own.
+          
+          The card version made this form taller than an iPad, which turned a
+          layout bug into being unable to start the app at all. It is also the
+          least important field on the screen — it picks a starting point for
+          the coach and can be changed at any time — so it had no business
+          being the biggest thing on it. Buttons rather than labels wrapping
+          radios, too: that shape is what a surrounding `.field` mangles.
+        */}
         <div className="field">
-          <label>How much poker have you played?</label>
-          <p className="sub" style={{ margin: '0 0 6px' }}>
-            This only decides how much of the coach is switched on at the start.
-            It does not make the table easier or harder, and it can be changed
-            at any time.
-          </p>
-          <div className="resetlist">
+          <label id="explabel">How much poker have you played?</label>
+          <div className="choices" role="radiogroup" aria-labelledby="explabel">
             {EXPERIENCE.map((level) => (
-              <label
+              <button
                 key={level.id}
-                className={`resetrow ${draft.experience === level.id ? 'on' : ''}`}
+                type="button"
+                role="radio"
+                aria-checked={draft.experience === level.id}
+                className={`choice ${draft.experience === level.id ? 'on' : ''}`}
+                onClick={() => set('experience', level.id as Experience)}
               >
-                <input
-                  type="radio"
-                  name="experience"
-                  checked={draft.experience === level.id}
-                  onChange={() => set('experience', level.id as Experience)}
-                />
-                <div>
-                  <div className="resetlabel">{level.label}</div>
-                  <div className="sub">{level.blurb}</div>
-                </div>
-              </label>
+                {level.label}
+              </button>
             ))}
           </div>
+          <p className="sub" style={{ margin: '6px 0 0' }}>
+            {experienceMeta(draft.experience).blurb} This only sets how much of
+            the coach is switched on to begin with — it does not make the table
+            easier or harder, and it can be changed at any time.
+          </p>
         </div>
 
         <div className="row" style={{ gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-          <button
-            className="btn primary"
-            disabled={!named}
-            onClick={() => onSave({ ...draft, name: draft.name.trim() })}
-          >
+          <button className="btn primary" type="submit" disabled={!named}>
             {editing ? 'Save' : 'Start playing'}
           </button>
-          {onCancel && <button className="btn ghost" onClick={onCancel}>Cancel</button>}
+          {onCancel && (
+            <button className="btn ghost" type="button" onClick={onCancel}>Cancel</button>
+          )}
           {onDelete && (
             confirmDelete ? (
-              <button className="btn small danger" onClick={onDelete}>
+              <button className="btn small danger" type="button" onClick={onDelete}>
                 Yes, delete this player and their history
               </button>
             ) : (
-              <button className="btn small danger" onClick={() => setConfirmDelete(true)}>
+              <button
+                className="btn small danger"
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+              >
                 Delete player
               </button>
             )
           )}
         </div>
-      </div>
+      </form>
     </div>
   )
 }

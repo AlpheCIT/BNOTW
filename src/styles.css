@@ -2239,3 +2239,39 @@ table.grid tr.chosen:hover { background: #4a2724; }
   line-height: 1.55;
   color: var(--ink-dim);
 }
+
+/* --- a compact set of choices --------------------------------------------- */
+
+/*
+ * Buttons, not labels wrapping radios.
+ *
+ * The label-and-radio shape is what a surrounding `.field` mangles, and it is
+ * also what made this form taller than an iPad — which turned a layout bug
+ * into being unable to start the app at all. A button carries none of that:
+ * `.field` has no rules for it, and four of them wrap onto one or two lines.
+ */
+.choices { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.choice {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink-dim);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: pointer;
+  /* Comfortably tappable without being a card. */
+  min-height: 42px;
+}
+
+.choice:hover { border-color: var(--panel-3); color: var(--ink); }
+.choice.on { border-color: var(--brass); background: var(--panel-3); color: var(--ink); }
+
+/* Must sit above the picker, which is the thing it lets you escape. */
+.update-bar + .overlay { top: 0; }

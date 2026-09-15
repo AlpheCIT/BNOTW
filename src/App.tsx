@@ -243,6 +243,18 @@ export default function App() {
     return suggestion && !waved.includes(suggestion.layer.id) ? suggestion : null
   }, [tracker.totals, activeLayers, waved])
 
+  /*
+   * Take a waiting build straight away when nobody has sat down yet.
+   *
+   * The reason updates normally wait is that a reload mid-hand is the worst
+   * possible moment. On this screen there is no hand, no session and nothing
+   * to lose — so the polite wait is just a way to stay broken, which is
+   * exactly what it did.
+   */
+  useEffect(() => {
+    if (!player && update.ready) update.apply()
+  }, [player, update.ready, update])
+
   useEffect(() => { saveSettings(prefs) }, [prefs])
   useEffect(() => {
     game.setSpeed(prefs.speed)
@@ -365,17 +377,34 @@ export default function App() {
     if (result !== 'cancelled') setOfferBackup(false)
   }, [book])
 
-  // Nothing renders until somebody has been chosen. A history has to belong to
-  // a person from its first hand; a "we will sort it out later" mode would
-  // just be the record-contamination problem with extra steps.
+  /*
+   * Nothing renders until somebody has been chosen. A history has to belong to
+   * a person from its first hand; a "we will sort it out later" mode would
+   * just be the record-contamination problem with extra steps.
+   *
+   * The update bar is repeated here rather than only below, and that is not
+   * tidiness. It used to live only past this return, so a build waiting to
+   * install could not be reached from the one screen standing in front of it —
+   * and a player who could not finish this form was stuck for good, with the
+   * fix for it sitting on their device unable to activate. A prompt to escape
+   * must never be behind the thing you are escaping.
+   */
   if (!player) {
     return (
-      <PlayerPicker
-        profiles={profiles}
-        onPick={choosePlayer}
-        onGuest={() => choosePlayer(guestProfile())}
-        onCreate={choosePlayer}
-      />
+      <>
+        {update.ready && (
+          <div className="update-bar" role="status">
+            <span>A new version is ready.</span>
+            <button className="btn small" onClick={update.apply}>Reload</button>
+          </div>
+        )}
+        <PlayerPicker
+          profiles={profiles}
+          onPick={choosePlayer}
+          onGuest={() => choosePlayer(guestProfile())}
+          onCreate={choosePlayer}
+        />
+      </>
     )
   }
 

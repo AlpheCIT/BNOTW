@@ -145,6 +145,58 @@ describe('making a player', () => {
   })
 })
 
+describe('the form cannot trap you', () => {
+  function form() {
+    const saved: LocalProfile[] = []
+    render(<PlayerForm onSave={(p) => saved.push(p)} />)
+    return saved
+  }
+
+  it('gets you in with the keyboard alone', () => {
+    const saved = form()
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Dave' } })
+    // The submit button being off-screen is survivable if Enter works. It was
+    // not a form, so it did not.
+    fireEvent.submit(document.querySelector('form')!)
+    expect(saved).toHaveLength(1)
+  })
+
+  it('asks the least important question with the smallest control', () => {
+    form()
+    // Four cards, each with a heading and a description, made this form taller
+    // than an iPad — and a layout bug on the one screen standing in front of
+    // the app turned into not being able to start the app at all.
+    expect(document.querySelectorAll('.choice')).toHaveLength(EXPERIENCE.length)
+    expect(document.querySelectorAll('.resetrow')).toHaveLength(0)
+  })
+
+  it('uses buttons rather than labels wrapping radios', () => {
+    form()
+    // That shape is the one a surrounding `.field` mangles, twice over: the
+    // label becomes a tiny uppercase caption and the radio a full-width box.
+    expect(document.querySelectorAll('.field input[type="radio"]')).toHaveLength(0)
+    for (const choice of document.querySelectorAll('.choice')) {
+      expect(choice.tagName).toBe('BUTTON')
+      expect(choice.getAttribute('type')).toBe('button')
+    }
+  })
+
+  it('still says what the choice does, once rather than four times', () => {
+    form()
+    expect(document.body.textContent).toMatch(/does not make the table easier or harder/i)
+  })
+
+  it('keeps every secondary button out of the submit path', () => {
+    render(<PlayerForm editing={DAVE} onSave={() => {}} onCancel={() => {}} onDelete={() => {}} />)
+    // A button with no type submits the form, so Cancel or Delete would have
+    // saved instead.
+    for (const button of document.querySelectorAll('.dialog button')) {
+      const type = button.getAttribute('type')
+      expect(type === 'submit' || type === 'button', button.textContent ?? '').toBe(true)
+    }
+  })
+})
+
 describe('editing and deleting', () => {
   it('takes two taps to delete somebody', () => {
     let deleted = false

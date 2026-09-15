@@ -18,6 +18,7 @@ import { BIG_BLIND } from '../engine/bnotw'
 import { cardCode } from '../engine/cards'
 import { reviewDecision, type CoachAdvice } from '../engine/coach'
 import { isDexterHand, livePlayers } from '../engine/hand'
+import { positionOf } from '../engine/position'
 import { buildReplay } from '../engine/replay'
 import {
   accumulate, emptyTotals, unaccumulate, type DecisionRecord, type HandRecord,
@@ -232,7 +233,7 @@ export function useTracker(): TrackerApi {
       mode,
       handNumber: state.handNumber,
       bomb: state.isBombPot,
-      position: seat === state.buttonSeat ? 'button' : 'other',
+      position: positionOf(state, seat),
       hole: player.hole.map(cardCode).join(' '),
       couldStraddle: !state.isBombPot,
       straddled: player.straddle > 0,

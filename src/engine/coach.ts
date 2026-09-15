@@ -12,6 +12,7 @@ import { makeDeck, rankLabel } from './cards'
 import { CATEGORY_NAMES, describeHand, evaluate, HandCategory, type HandValue } from './handEval'
 import { BIG_BLIND, money } from './bnotw'
 import { chenScore } from './ai'
+import { isLate, positionLabelFor, positionOf } from './position'
 import { bestHand, legalActions, livePlayers, potTotal, type LegalActions } from './hand'
 import { voice, type CoachVoice } from './voices'
 import type { Action, ActionKind, HandState, Seat, Street } from './types'
@@ -538,15 +539,9 @@ export function advise(
 }
 
 /** Includes the preposition, so it reads properly in a sentence. */
+/** Kept as a local name; the logic lives in `position.ts` now. */
 function positionName(state: HandState, seat: number): string {
-  const i = state.order.indexOf(seat)
-  const n = state.order.length
-  if (i === n - 1) return 'on the button'
-  if (i === n - 2) return 'in the cut-off'
-  if (seat === state.smallBlindSeat) return 'in the small blind'
-  if (seat === state.bigBlindSeat) return 'in the big blind'
-  if (i <= Math.floor(n / 3)) return 'in early position'
-  return 'in middle position'
+  return positionLabelFor(state, seat)
 }
 
 function preflopAdvice(
@@ -561,7 +556,8 @@ function preflopAdvice(
   speaker: CoachVoice,
 ): Recommendation {
   const where = positionName(state, seat)
-  const late = where === 'on the button' || where === 'in the cut-off'
+  const seatPosition = positionOf(state, seat)
+  const late = isLate(seatPosition)
   const forced = Math.max(BIG_BLIND, ...state.straddles.map((s) => s.amount))
   const raised = state.currentBet > forced
   /*
@@ -587,7 +583,7 @@ function preflopAdvice(
    */
   const need = (raised ? 10 : 6.5)
     - (late ? 2 : 0)
-    + (where === 'in early position' ? 1 : 0)
+    + (seatPosition === 'ep' ? 1 : 0)
     + speaker.entryShift
 
   if (legal.canCheck) {

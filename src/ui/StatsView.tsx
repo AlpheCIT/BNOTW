@@ -1,10 +1,12 @@
 import { useMemo, useState } from 'react'
 import { money, signedMoney } from '../engine/bnotw'
 import {
-  diagnose, rating, ratingBand, tendencies, winRate,
-  PROVISIONAL_DECISIONS, RATING_BASE,
+  byPosition, diagnose, handsWithoutPosition, rating, ratingBand, tendencies, winRate,
+  POSITION_SAMPLE, PROVISIONAL_DECISIONS, RATING_BASE,
   type Tendency,
 } from '../engine/playerStats'
+import { POSITION_LABEL } from '../engine/position'
+import { pct } from '../engine/coach'
 import type { HandRecord } from '../engine/playerStats'
 import { leakBrief } from '../engine/brief'
 import { ReplayView } from './ReplayView'
@@ -68,6 +70,8 @@ export function StatsView({
   const results = useMemo(() => winRate(totals), [totals])
   const stats = useMemo(() => tendencies(totals), [totals])
   const notes = useMemo(() => diagnose(totals), [totals])
+  const seats = useMemo(() => byPosition(totals), [totals])
+  const unplaced = useMemo(() => handsWithoutPosition(totals), [totals])
 
   if (totals.hands === 0) {
     return (
@@ -320,6 +324,70 @@ export function StatsView({
           ))}
         </div>
       )}
+
+      <div className="panel">
+        <h2>By Position</h2>
+        {seats.length === 0 ? (
+          <p className="sub">
+            Nothing to place yet. Positions have only been recorded since this
+            was added, so the table fills up from your next hands onwards.
+            {unplaced > 0 && ` Your earlier ${unplaced} hands cannot be placed — the
+            record kept only whether you were on the button.`}
+          </p>
+        ) : (
+          <>
+            <p className="sub">
+              Where the money actually comes from. <b>Accuracy</b> is the column
+              worth reading first: decision quality settles far sooner than
+              results do, and a positional win rate is a sixth of an already
+              small sample.
+            </p>
+            <div className="tablewrap">
+              <table className="grid" style={{ minWidth: 520 }}>
+                <thead>
+                  <tr>
+                    <th>Seat</th><th>Hands</th><th>bb/100</th>
+                    <th>VPIP</th><th>PFR</th><th>Accuracy</th><th>EV lost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {seats.map((row) => (
+                    <tr key={row.position} title={POSITION_LABEL[row.position]}>
+                      <td><b>{row.label}</b></td>
+                      <td className="num">{row.hands}</td>
+                      <td className={`num ${row.meaningful ? (row.bbPer100 >= 0 ? 'pos' : 'neg') : 'faint'}`}>
+                        {row.bbPer100 >= 0 ? '+' : ''}{row.bbPer100.toFixed(1)}
+                        {/*
+                          The band is not decoration. Split six ways a home
+                          game's history cannot pin a positional win rate down,
+                          and a bare column of bb/100 invites exactly the
+                          conclusion the data will not support.
+                        */}
+                        <span className="faint" style={{ fontSize: 10, marginLeft: 4 }}>
+                          {Number.isFinite(row.margin) ? `±${row.margin.toFixed(0)}` : '±?'}
+                        </span>
+                      </td>
+                      <td className="num">{row.vpip === null ? '—' : pct(row.vpip)}</td>
+                      <td className="num">{row.pfr === null ? '—' : pct(row.pfr)}</td>
+                      <td className="num">{row.accuracy === null ? '—' : pct(row.accuracy)}</td>
+                      <td className={`num ${row.evLost > 0 ? 'neg' : 'faint'}`}>
+                        {money(row.evLost)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="sub" style={{ marginTop: 8, fontSize: 11 }}>
+              A dash means too few hands from that seat to report a rate.
+              {seats.some((r) => !r.meaningful) && ` Win rates under ${POSITION_SAMPLE} hands are greyed —
+              they are noise wearing a number.`}
+              {unplaced > 0 && ` ${unplaced} earlier hands are not in this table: the record
+              did not keep where you were sitting.`}
+            </p>
+          </>
+        )}
+      </div>
 
       <div className="panel">
         <h2>Recent Hands</h2>

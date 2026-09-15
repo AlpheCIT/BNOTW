@@ -14,6 +14,7 @@ import { guardFor, type Guard, type GuardOptions } from '../engine/misclick'
 import { whatIf, type WhatIfResult } from '../engine/whatIf'
 import { allLayers, tableNotes, type LayerId } from '../engine/layers'
 import { readFor } from '../engine/reads'
+import { positionLabelFor as positionLabel } from '../engine/position'
 import { useAdvice } from './useAdvice'
 import type { Action, HandPlayer, HandState, Seat as SeatModel } from '../engine/types'
 import { Avatar } from './Avatar'
@@ -27,18 +28,6 @@ import type { NarratorApi } from './useNarrator'
 import type { GameApi } from './useGame'
 import type { TrackerApi } from './useTracker'
 
-/** Where a seat sits, in the words a player would use. */
-function positionLabel(hand: HandState | null, seat: number): string {
-  if (!hand) return 'in this seat'
-  const i = hand.order.indexOf(seat)
-  const n = hand.order.length
-  if (i === n - 1) return 'on the button'
-  if (i === n - 2) return 'in the cut-off'
-  if (seat === hand.smallBlindSeat) return 'in the small blind'
-  if (seat === hand.bigBlindSeat) return 'in the big blind'
-  if (i <= Math.floor(n / 3)) return 'in early position'
-  return 'in middle position'
-}
 
 /** Seats sit on an ellipse with the human parked at the bottom. */
 function ellipse(index: number, total: number, rx: number, ry: number) {

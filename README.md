@@ -532,6 +532,51 @@ most recent 150 hands keep theirs; older hands keep their summary row and drop
 the replay, so the history stays storable and the running totals never depend
 on it.
 
+### By position
+
+Where the money actually comes from, seat by seat: hands, bb/100, VPIP, PFR,
+decision accuracy and EV given up from BTN, CO, MP, EP, BB and SB.
+
+**The record used to throw this away.** `HandRecord.position` was
+`'button' | 'other'`, so "how do I play from under the gun" was not a question
+the history could answer — not because the sums were hard but because the
+information was discarded at the moment it was free. Hands played before this
+was added are permanently unplaceable, and the table says how many rather than
+quietly showing a smaller total than the panel above it.
+
+Every win rate carries a confidence band, for the same reason the overall one
+does and more so: split six ways, a home game's history is nowhere near enough
+hands to pin a positional win rate down. A bare column of bb/100 figures
+invites exactly the conclusion the data will not support. Rates under 30 hands
+from a seat are greyed out, and a rate with too little behind it shows a dash
+instead of a number. **Accuracy is the column worth reading first** — decision
+quality settles far sooner than results do.
+
+Positions are running counters on the totals, not something recomputed from the
+stored hands, so trimming old history never changes them.
+
+#### A bug this turned up
+
+Naming the seat existed in three places — the coach's reasoning, the table
+heading, and the record — and two of them were wrong short-handed:
+
+```ts
+if (i === n - 1) return 'on the button'
+if (i === n - 2) return 'in the cut-off'     // ← three-handed, this is the big blind
+if (seat === state.smallBlindSeat) ...
+```
+
+Testing the seat's *index* before testing the blinds is right at a full table
+and wrong below five players, so the coach was telling short-handed players
+they were in the cut-off when they were in the blind — and adjusting its
+pre-flop bar by two Chen points accordingly. Blinds are now decided by the seat
+they actually are, and position by index only for the seats in between. All
+three callers share one `positionOf`.
+
+Worth saying plainly: that bug was harmless while it only produced prose. It
+stopped being harmless the moment the same value started being written into
+permanent history.
+
 ### Correcting the record
 
 Hands played to try the app out move your VPIP and your rating exactly as hard
@@ -915,7 +960,7 @@ Every push and pull request runs typecheck, the suite and a production build
 (`.github/workflows/ci.yml`). The long skill measurement runs as its own job so
 that minutes of CPU cannot hide a fast failure behind them.
 
-446 tests, all in `npm test`:
+474 tests, all in `npm test`:
 
 - The hand evaluator is checked against the exact frequency distribution of all
   2,598,960 five-card hands (40 straight flushes, 624 quads, and so on).

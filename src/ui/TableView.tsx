@@ -624,6 +624,7 @@ function ActionButtons({
       quick.push({ label: bet.name, value: bet.amount, named: true })
     }
   }
+  quick.push({ label: legal.canBet ? 'Min bet' : 'Min raise', value: legal.minRaiseTo })
   for (const [label, fraction] of [['½ pot', 0.5], ['¾ pot', 0.75], ['Pot', 1]] as const) {
     const value = clamp(toChipIncrement(hand.currentBet + pot * fraction), legal)
     if (value > legal.minRaiseTo && value < legal.maxRaiseTo) quick.push({ label, value })
@@ -691,33 +692,50 @@ function ActionButtons({
         </div>
       ) : (
       <div className={`action-buttons ${settled ? '' : 'settling'}`}>
-        <button
-          className="btn fold"
-          disabled={!legal.canFold}
-          onClick={() => attempt({ kind: 'fold' })}
-        >
-          Fold
-        </button>
-
-        {legal.canCheck ? (
-          <button className="btn check" onClick={() => attempt({ kind: 'check' })}>Check</button>
-        ) : (
-          <button className="btn call" onClick={() => attempt({ kind: 'call' })}>
-            Call
-            <small>{money(legal.callAmount)}{legal.callIsAllIn ? ' · all in' : ''}</small>
-          </button>
-        )}
-
         {raising ? (
-          <button className="btn raise" onClick={submitRaise}>
-            {legal.canBet ? 'Bet' : 'Raise to'}
-            <small>{money(amount)}</small>
-          </button>
+          /*
+           * While a bet is being composed, nothing else is on offer.
+           *
+           * Fold, Check and Call used to stay live underneath the slider, so
+           * setting a custom amount and then reaching for the confirm button
+           * could land on Check instead — the bet you just dialled in thrown
+           * away by the tap meant to place it. Two buttons here, and one of
+           * them is the bet.
+           */
+          <>
+            <button className="btn" onClick={() => setRaising(false)}>← Back</button>
+            <button className="btn raise" onClick={submitRaise}>
+              {legal.canBet ? 'Bet' : 'Raise to'}
+              <small>{money(amount)}</small>
+            </button>
+          </>
         ) : (
-          <button className="btn raise" disabled={!canOpenRaise} onClick={() => setRaising(true)}>
-            {legal.canBet ? 'Bet' : 'Raise'}
-            <small>{canOpenRaise ? `from ${money(legal.minRaiseTo)}` : 'not available'}</small>
-          </button>
+          <>
+            <button
+              className="btn fold"
+              disabled={!legal.canFold}
+              onClick={() => attempt({ kind: 'fold' })}
+            >
+              Fold
+            </button>
+
+            {legal.canCheck ? (
+              <button className="btn check" onClick={() => attempt({ kind: 'check' })}>
+                Check
+                <small>free</small>
+              </button>
+            ) : (
+              <button className="btn call" onClick={() => attempt({ kind: 'call' })}>
+                Call
+                <small>{money(legal.callAmount)}{legal.callIsAllIn ? ' · all in' : ''}</small>
+              </button>
+            )}
+
+            <button className="btn raise" disabled={!canOpenRaise} onClick={() => setRaising(true)}>
+              {legal.canBet ? 'Bet' : 'Raise'}
+              <small>{canOpenRaise ? `from ${money(legal.minRaiseTo)}` : 'not available'}</small>
+            </button>
+          </>
         )}
       </div>
       )}

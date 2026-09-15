@@ -602,8 +602,12 @@ p.sub {
 }
 
 .btn.fold { background: #4a2320; border-color: #6b332e; }
+/* Check and Call land in the same slot, one after the other, and one of them
+   costs money. They were the same colour, which is how you tap Call meaning
+   Check. Green reads free; steel reads "this is a bet". */
 .btn.check { background: #1d3a2c; border-color: #2c5741; }
-.btn.call { background: #1d3a2c; border-color: #2c5741; }
+.btn.call { background: #17303f; border-color: #2f5a72; color: #cfe8f5; }
+.btn.call small { color: #eaf6fc; font-weight: 700; opacity: 1; }
 .btn.raise { background: #7a5411; border-color: var(--brass); color: #ffeec9; }
 
 .raise-panel {

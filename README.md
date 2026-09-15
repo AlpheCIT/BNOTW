@@ -411,6 +411,51 @@ equity. The pre-flop reasoning changed too: *"A-K is a strong starting hand
 information, and no longer a piece of unintroduced jargon at the top of every
 pre-flop argument.
 
+### Had you played it differently
+
+Step a replay to any of your own decisions and ask what the roads not taken
+were worth. Each line is played out 120 times from that point, with a fresh
+runout every time, and what comes back is a range rather than a number.
+
+**One replay would be an anecdote.** Re-running the hand once with "raise"
+instead of "call" gives a single draw from a distribution, and showing it as
+*the* consequence teaches exactly the results-oriented thinking the rating
+exists to avoid.
+
+So the bar is the finding. At these trial counts the bands routinely overlap,
+and when they do the panel says **"none of these are far enough apart to tell
+apart"** rather than crowning a winner. That is the honest answer more often
+than not, and a feature that always ranks its options teaches a confidence it
+has not earned.
+
+#### Two caveats, both on screen
+
+**Everyone's cards are held as they were dealt.** So this answers "what would
+this line have done *in this hand*", not "is raising right in spots like this".
+The second question needs the opponents' cards varied across a range and is a
+different feature.
+
+**The simulated opponents think less hard than the real ones.** The bots run
+their own Monte Carlo on every decision, so an exploration samples the future
+inside a function that is already sampling the future. At full strength one
+line takes 30–40 seconds; capped, the whole thing takes about 9. The cost of
+that cap was measured across four independent spots at 120 trials:
+
+| spot | capped bots | full-strength bots |
+|---|---|---|
+| 0 | +387 ± 134 | **+215 ± 77** |
+| 1 | −449 ± 226 | −455 ± 197 |
+| 2 | +2288 ± 569 | +1981 ± 513 |
+| 3 | −1031 ± 308 | −1334 ± 240 |
+
+Three of four move the same way and one moves far enough that the bands do not
+overlap. Weaker opponents lose to you more often, so **the numbers flatter your
+line by roughly 10–25%**. That is a real bias in the direction that feels good,
+so it is printed under the bars rather than left in a comment.
+
+It runs in a worker and is asked for rather than computed ahead of you — 9
+seconds of blocked main thread is the X-ray bug again.
+
 ### Had you stayed
 
 You fold, the hand carries on, and as far as you are concerned it stops
@@ -1165,7 +1210,7 @@ Every push and pull request runs typecheck, the suite and a production build
 (`.github/workflows/ci.yml`). The long skill measurement runs as its own job so
 that minutes of CPU cannot hide a fast failure behind them.
 
-590 tests, all in `npm test`:
+627 tests, all in `npm test`:
 
 - The hand evaluator is checked against the exact frequency distribution of all
   2,598,960 five-card hands (40 straight flushes, 624 quads, and so on).
@@ -1190,6 +1235,15 @@ that minutes of CPU cannot hide a fast failure behind them.
   after a removal must equal the totals a history that never contained the hand
   would have had — checked at every position in a 60-hand history, and for
   batches removed in either order.
+- Styles that leak are tested by loading the real stylesheet into jsdom and
+  asserting the computed values. jsdom does no layout, so a component test can
+  render a perfectly correct tree that paints as nonsense — which is exactly
+  what shipped in the new-player form, where a choice row that is itself a
+  `<label>` inherited `.field label`'s tiny uppercase caption styling and
+  `.field input`'s full-width box. What jsdom *does* resolve is the cascade,
+  and the bug was a cascade bug. Narrow by design: it cannot check that
+  anything looks right, only that the specific rules which leaked are not
+  leaking. Layout needs a browser, which is issue #36.
 - The React layer is tested with real engine objects rather than mocks
   (`ui/testTable.tsx` builds an actual `Table` behind the game API). That layer
   had one test file and every reported bug; it now has eight. The tests there

@@ -390,6 +390,7 @@ export function TableView({
           decisions={lastHand.decisions}
           note={lastHand.note ?? ''}
           onNote={(note) => tracker?.setNote(lastHand.at, note)}
+          seats={table.seats}
           onClose={() => setReplayLast(false)}
         />
       )}

@@ -879,23 +879,39 @@ table.grid tr.winner td { background: rgba(95, 208, 138, 0.08); }
 
 /* --- overlay ------------------------------------------------------------- */
 
+/*
+ * A dialog taller than the screen has to stay reachable.
+ *
+ * `place-items: center` alone centres an oversized child by pushing it past
+ * *both* edges, and nothing scrolls — so the top of a long form and the button
+ * at the bottom both become unreachable. Scrolling the overlay and centring
+ * with `margin: auto` keeps the whole thing in reach at any height.
+ *
+ * The safe-area padding is for the home indicator on an iPad, which otherwise
+ * sits over the last thing in the dialog.
+ */
 .overlay {
   position: fixed;
   inset: 0;
   background: rgba(3, 8, 6, 0.82);
   display: grid;
   place-items: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 18px;
+  padding-bottom: max(18px, env(safe-area-inset-bottom));
   z-index: 50;
 }
 
 .dialog {
+  margin: auto;
   width: min(460px, 100%);
   /* A child that will not shrink used to push the whole dialog wider than the
      screen, and the centred overlay then clipped it on both sides — which is
      how the new-player form lost the left half of every heading. */
   min-width: 0;
   max-height: 86vh;
+  max-height: 86dvh;
   overflow-y: auto;
   background: var(--panel);
   border: 1px solid var(--brass);
@@ -1038,6 +1054,7 @@ table.grid tr.winner td { background: rgba(95, 208, 138, 0.08); }
 .coach {
   flex: 0 0 auto;
   max-height: 46vh;
+  max-height: 46dvh;
   overflow-y: auto;
   padding: 10px 12px;
   background: #0b1418;
@@ -1327,7 +1344,7 @@ table.grid tr.winner td { background: rgba(95, 208, 138, 0.08); }
 
 @media (max-width: 620px) {
   .roster { grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); }
-  .coach { max-height: 40vh; }
+  .coach { max-height: 40vh; max-height: 40dvh; }
 }
 
 .seat-name { display: flex; align-items: center; justify-content: center; gap: 3px; }
@@ -1364,7 +1381,7 @@ table.grid tr.winner td { background: rgba(95, 208, 138, 0.08); }
   .coach-bar .faint { display: none; }
   .tabs { padding: 2px; gap: 1px; }
   .tabs button { padding: 7px 7px; font-size: 10.5px; }
-  .coach { max-height: 32vh; }
+  .coach { max-height: 32vh; max-height: 32dvh; }
 }
 
 /* Below this the five tabs need the whole row to themselves. */
@@ -1728,6 +1745,7 @@ table.grid tr.chosen:hover { background: #4a2724; }
 .coach-column {
   flex: 0 0 auto;
   max-height: 46vh;
+  max-height: 46dvh;
   overflow-y: auto;
   background: #0b1418;
   border-top: 1px solid #1d3b46;

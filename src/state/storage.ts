@@ -11,6 +11,7 @@ import type { PlayMode } from '../engine/playerStats'
 import type { ProviderId } from '../engine/providers/types'
 import type { CustomHandNames } from '../engine/handNames'
 import type { CustomVoiceNames } from '../engine/voices'
+import { allLayers, type LayerId } from '../engine/layers'
 import { emptyTotals, type HandRecord, type PlayerTotals } from '../engine/playerStats'
 import type { GameNight } from './records'
 import { sortNights } from './records'
@@ -26,6 +27,7 @@ const COACH_TABLE_KEY = 'bnotw.table.coach.v1'
 const DRILL_KEY = 'bnotw.drill.v1'
 const HAND_NAMES_KEY = 'bnotw.handnames.v1'
 const VOICES_KEY = 'bnotw.voices.v1'
+const LAYERS_KEY = 'bnotw.layers.v1'
 const COACH_KEY = 'bnotw.coach.v1'
 
 export interface RecordBook {
@@ -494,5 +496,50 @@ export function saveVoices(settings: VoiceSettings): void {
     localStorage.setItem(VOICES_KEY, JSON.stringify(settings))
   } catch {
     // Preference, not data.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Which coaching layers are on
+// ---------------------------------------------------------------------------
+
+/**
+ * The layers this player has turned on, or null when they have never chosen.
+ *
+ * Null is a real answer and not the same as an empty list. It is what lets the
+ * app tell a brand new player from one who had the whole dashboard before
+ * layers existed: turning everything off for the second group would be taking
+ * away numbers they never asked to lose.
+ */
+export function loadLayers(): LayerId[] | null {
+  if (typeof localStorage === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(LAYERS_KEY)
+    if (!raw) return null
+    const data = JSON.parse(raw) as unknown
+    if (!Array.isArray(data)) return null
+    const known = new Set<string>(allLayers())
+    return data.filter((id): id is LayerId => typeof id === 'string' && known.has(id))
+  } catch {
+    return null
+  }
+}
+
+export function saveLayers(layers: readonly LayerId[]): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(LAYERS_KEY, JSON.stringify(layers))
+  } catch {
+    // A preference. Never worth failing a hand over.
+  }
+}
+
+/** Forget the choice, so the next load decides afresh. */
+export function clearLayers(): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.removeItem(LAYERS_KEY)
+  } catch {
+    // Nothing to do; the stored value is simply kept.
   }
 }

@@ -261,7 +261,9 @@ A second table that never touches your records. On every decision it shows:
 - **Win probability** against the players still in the hand — the number a
   broadcast puts on screen. Every runout is counted exactly when that is cheap
   (990 on the flop, 44 on the turn) and sampled only when it is not.
-- **Chen score** and a grade for your starting hand pre-flop.
+- **Chen score** and a grade for your starting hand pre-flop, ranked below the
+  equity rather than beside it — see [Chen, ranked rather than
+  pinned](#chen-ranked-rather-than-pinned).
 - **Your outs**, grouped by what they make, each with its own odds of arriving
   by the river.
 - **The price** — pot odds, the equity you need to break even, and the expected
@@ -269,12 +271,125 @@ A second table that never touches your records. On every decision it shows:
 - **A recommendation**, with the reasoning that produced it. The point is not to
   be told what to do; it is to see the arithmetic you should have been doing.
 
+How much of that is on screen is up to you — see [The
+layers](#the-layers). Everything above is what you get with all four on; a new
+player starts with one question at a time.
+
 Then it reviews what you did, and keeps a running scorecard: how often you
 matched the recommendation, how much expected value the gap cost, and which
 mistakes you make most.
 
 **X-ray** turns every hand face up with live win percentages, the way a
 televised hand looks. It is a study tool, so it only exists in coach mode.
+
+### The layers
+
+Coach mode used to show everything it knew, every hand, at equal weight. For
+someone learning that is not a lesson, it is a dashboard — and it is the direct
+cause of the Chen complaint, because a number that is not *wrong* can still be
+a problem when it sits in a tile the same size as things that matter far more
+right now.
+
+So the panels are layers to turn on, not levels to beat. Each adds rather than
+replaces, they go on in any order, and anyone who wants the whole dashboard on
+their first hand just turns them all on.
+
+| Layer | The question | What it adds |
+|---|---|---|
+| **The price** | Is this call worth what it costs? | The pot, what the call costs, the share you need to break even |
+| **The hand** | Do I actually have the hand for it? | Equity, what you have made, your outs, and Chen before the flop |
+| **The player** | Who am I up against? | Position, the range each opponent is credited with, and how they have actually been playing |
+| **The table** | What is different about this game? | How the house rules change the maths — bomb pots, straddles, the Dexter |
+
+With only **The price** on, the equity bar shows the mark you have to clear and
+not how close you are to it. That is the layer's whole question: work out what
+you need, then go and decide whether you have it.
+
+**The layers gate the numbers, never the advice.** The recommendation and the
+reasoning behind it show at every layer, because advice you cannot check is
+worse than a number you have not been introduced to.
+
+#### When the next layer is offered
+
+Each layer owns the mistakes it is about, and the tracker already counts them
+by name: calling a price you should have passed on is a price mistake; playing
+a hand that was priced fine but plays badly is a hand mistake; missing value on
+the river is a line mistake. When a layer's own mistakes have gone quiet over a
+decent sample, the next one is offered once, with the evidence in the prompt —
+*"The price looks settled — 0 slips in 200 decisions."*
+
+**Those thresholds are judgement, not measurement.** Sixty decisions and an 8%
+slip rate were not fitted to anything; they are a reasonable-looking sample and
+a reasonable-looking error rate, chosen because they had to be something. They
+decide when a suggestion appears and nothing else, so being wrong about them
+costs a prompt at the wrong moment.
+
+**The table layer has no gate at all, and says so.** Reading a room happens
+between the hands, in the part of poker this app cannot see. It teaches what
+follows from the house rules — a bomb pot really does mean nobody chose their
+cards, a straddle really does change the price — and then states plainly that
+tells and timing are the one thing it cannot teach you, because it has nobody
+to show you. Filling that gap with received wisdom it has no way to check would
+be worse than leaving it open.
+
+#### Chen, ranked rather than pinned
+
+Chen is kept, because it is a genuinely useful tool for the question you have
+most often: is this hand worth entering with at all. What changed is its
+standing. It was in a grid cell the same size as equity, which read as an equal
+authority on a decision it knows far less about — it never sees the board, the
+position, the bet size or who is in the pot.
+
+Now it is one line under the numbers that outrank it, leading with the grade,
+with an explanation a tap away that says what it is good for and what it does
+not know. Where Chen and the equity disagree, the panel says to believe the
+equity. The pre-flop reasoning changed too: *"A-K is a strong starting hand
+(Chen 10)"* rather than *"A-K scores 10 on the Chen scale"* — identical
+information, and no longer a piece of unintroduced jargon at the top of every
+pre-flop argument.
+
+### Had you stayed
+
+You fold, the hand carries on, and as far as you are concerned it stops
+existing. "Would I have hit that?" is one of the most natural questions a
+learning player asks and nothing answered it.
+
+Once a hand you folded finishes, coach mode shows what you would have held at
+the river, whether it was the best hand out there, and what the pot was worth.
+Coach mode only, for the same reason X-ray is: at a real table you do not get
+to see this.
+
+The danger here is not that it is wrong, it is that it is persuasive — *"you
+would have made a flush"* is the most memorable thing on the screen and the
+least useful. Showing near-misses is how you train results-oriented thinking,
+which is precisely the habit the rating was built to avoid. So:
+
+- It reports what your hand would have **been**, never what you would have
+  **won**. The panel says "the best hand at the river", which is a different
+  claim and the difference is the whole lesson.
+- **The equity you had when you folded is printed above the runout that came.**
+  The other order reads as "you were robbed".
+- The caveat is body text, not a footnote, and it names the second reason this
+  is weak evidence as well as the first: with you still in the hand, the
+  betting would not have gone the same way, so some of those hands would never
+  have reached the river at all. A fold that would have won is usually still
+  the right fold.
+- A hit is not styled as a success. The tint marks which case it is without
+  scoring it.
+
+When the hand ended before the river there is nothing to show, and it says so
+rather than dealing a runout that never came — that would be answering about a
+different hand. Same when everyone else folded too and there was nobody left to
+have beaten.
+
+### The last hand
+
+A **Last hand** control on the table itself, in both modes, opens the replay of
+the hand that just happened. Replay already existed but lived in My Game, so
+the moment you most want to look at a hand — straight after playing it — was
+the moment it was hardest to reach. Each mode shows its own last hand: a
+coach-mode hand appearing at the table would be a hand that never happened
+there.
 
 ### Coaches who disagree
 
@@ -800,7 +915,7 @@ Every push and pull request runs typecheck, the suite and a production build
 (`.github/workflows/ci.yml`). The long skill measurement runs as its own job so
 that minutes of CPU cannot hide a fast failure behind them.
 
-377 tests, all in `npm test`:
+446 tests, all in `npm test`:
 
 - The hand evaluator is checked against the exact frequency distribution of all
   2,598,960 five-card hands (40 straight flushes, 624 quads, and so on).
@@ -827,9 +942,19 @@ that minutes of CPU cannot hide a fast failure behind them.
   batches removed in either order.
 - The React layer is tested with real engine objects rather than mocks
   (`ui/testTable.tsx` builds an actual `Table` behind the game API). That layer
-  had one test file and every reported bug; it now has five. The tests there are
-  mostly about the guardrails — that the action bar takes no tap it was not
-  offered, and that nothing destructive is ever one press away.
+  had one test file and every reported bug; it now has eight. The tests there
+  are mostly about the guardrails — that the action bar takes no tap it was not
+  offered, that nothing destructive is ever one press away, and that "had you
+  stayed" always prints the probability above the outcome.
+- The layer-to-leak mapping is tested by *driving* `reviewDecision` through
+  every combination it accepts and collecting the leaks it can actually
+  produce, rather than by comparing against a list typed out by hand. A renamed
+  leak would otherwise leave a layer that silently never settles, which is the
+  kind of bug nothing complains about.
+- The what-if refuses more often than it answers, and each refusal has its own
+  test: a hand that ended pre-flop, one that stopped on the flop, one where
+  everybody folded. Writing it the other way round — asserting the answers and
+  trusting the guards — is how a feature ends up inventing a runout.
 
 ---
 

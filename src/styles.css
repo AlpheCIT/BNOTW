@@ -1679,3 +1679,221 @@ table.grid tr.chosen:hover { background: #4a2724; }
 }
 
 .row.picking .sub { margin: 0; }
+
+/* --- the coach column ----------------------------------------------------- */
+
+/*
+ * The read, plus whatever the finished hand has to add underneath it.
+ *
+ * The scrolling moved out here when the what-if panel arrived: with two
+ * stacked panels each scrolling itself, the thing you wanted to read was
+ * always the one below the fold of the one above it.
+ */
+.coach-column {
+  flex: 0 0 auto;
+  max-height: 46vh;
+  overflow-y: auto;
+  background: #0b1418;
+  border-top: 1px solid #1d3b46;
+}
+
+.coach-column .coach {
+  max-height: none;
+  overflow: visible;
+  border-top: none;
+  border-left: none;
+  width: auto;
+  flex: 1 1 auto;
+}
+
+@media (min-width: 940px) {
+  .table-body.with-coach .coach-column {
+    width: 380px;
+    flex: 0 0 380px;
+    max-height: none;
+    border-top: none;
+    border-left: 1px solid #1d3b46;
+  }
+}
+
+/* --- had you stayed ------------------------------------------------------- */
+
+.whatif {
+  padding: 10px 12px 12px;
+  border-top: 1px solid #1d3b46;
+}
+
+.whatif h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #6fd3e8;
+}
+
+/*
+ * Deliberately not green-for-hit, red-for-miss.
+ *
+ * Colouring "you would have won" as a success is the whole failure mode this
+ * panel is trying to avoid — a fold that would have won is usually still the
+ * right fold. The tint marks which case it is without scoring it.
+ */
+.whatif.hit { background: #14201c; }
+.whatif.missed { background: #1a1618; }
+
+.whatif-equity {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--ink-dim);
+}
+
+.whatif-equity b { color: var(--brass); font-variant-numeric: tabular-nums; }
+
+.whatif-cards {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.whatif-cards .faint { font-size: 11px; margin: 0 2px; }
+
+.whatif-made {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.whatif-made b { color: var(--ink); }
+
+.whatif-showdown {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin-bottom: 4px;
+}
+
+.whatif-showdown .won { color: var(--ink-dim); }
+.whatif-showdown .won::after { content: ' — took it'; color: var(--brass); }
+
+.whatif-caveat {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.3);
+  border-left: 2px solid var(--brass);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+}
+
+/* --- the coaching layers -------------------------------------------------- */
+
+/*
+ * Chen, ranked below the numbers that outrank it.
+ *
+ * It used to sit in a grid cell the same size as equity, which read as an
+ * equal authority on a decision it knows far less about. One line, under the
+ * grid, with the explanation a tap away.
+ */
+.chenline {
+  padding: 8px 10px;
+  margin-bottom: 9px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.chenline > .row { gap: 6px; }
+.chenline b { font-variant-numeric: tabular-nums; }
+.chenline .faint { font-size: 11px; }
+
+.chen-grade {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+.chen-grade.g-premium { color: var(--brass-bright); }
+.chen-grade.g-strong { color: var(--win); }
+.chen-grade.g-playable { color: #6fd3e8; }
+.chen-grade.g-marginal { color: var(--ink-dim); }
+.chen-grade.g-trash { color: var(--loss); }
+
+.chen-explain {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+}
+
+.chen-explain p { margin: 0 0 7px; }
+.chen-explain p:last-child { margin-bottom: 0; }
+.chen-explain b { color: var(--ink); }
+
+.btn.tiny {
+  padding: 2px 7px;
+  font-size: 10px;
+  min-height: 0;
+}
+
+/* A layer's own panel: the player reads, the table notes. */
+.layer-panel {
+  padding: 9px 10px;
+  margin-bottom: 9px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 2px solid #1d3b46;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.layer-panel h4 {
+  margin: 0 0 6px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.layer-panel p { margin: 0 0 6px; color: var(--ink-dim); }
+.layer-panel p:last-child { margin-bottom: 0; }
+.layer-panel b { color: var(--ink); }
+
+.reads { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+
+.read-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.read-name { flex: 1 1 auto; color: var(--ink); font-variant-numeric: normal; }
+
+/* The nudge towards the next layer. Never more than one at a time. */
+.layer-offer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #13252b;
+  border-bottom: 1px solid #1d3b46;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+}
+
+.layer-offer b { color: #6fd3e8; letter-spacing: 0.04em; }

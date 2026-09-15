@@ -53,6 +53,7 @@ function fakeTracker(hands: HandRecord[]) {
     totals: hands.reduce(accumulate, emptyTotals()),
     // The view expects newest first, which is how the store hands them back.
     recent: [...hands].sort((a, b) => b.at - a.at),
+    hydrated: true,
     setNote: () => {},
     recordDecision: () => {},
     completeHand: () => {},

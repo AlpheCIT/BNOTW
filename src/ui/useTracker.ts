@@ -82,6 +82,14 @@ interface InProgress {
 export interface TrackerApi {
   totals: PlayerTotals
   recent: HandRecord[]
+  /**
+   * The history has been read back off disk.
+   *
+   * Exposed because "no decisions recorded" and "not looked yet" are the same
+   * shape and mean opposite things — anything that decides what to show a new
+   * player has to wait for this or it will decide for the wrong one.
+   */
+  hydrated: boolean
   /** Attach or clear a note on a hand, found by when it was played. */
   setNote: (at: number, note: string) => void
   /** Call with the state as it stood when the decision was made. */
@@ -123,6 +131,7 @@ export function useTracker(): TrackerApi {
    * loss, which is the opposite of what this change is for.
    */
   const hydrated = useRef(false)
+  const [ready, setReady] = useState(false)
   const usingDb = useRef(false)
   const current = useRef<InProgress>(blank(-1))
   // Keyed on the hand object rather than its number: starting a fresh session
@@ -139,7 +148,7 @@ export function useTracker(): TrackerApi {
 
       if (!db) {
         // No IndexedDB: carry on exactly as before.
-        if (!cancelled) { setLog(legacy); hydrated.current = true }
+        if (!cancelled) { setLog(legacy); hydrated.current = true; setReady(true) }
         return
       }
       usingDb.current = true
@@ -159,6 +168,7 @@ export function useTracker(): TrackerApi {
         hands: hands.length > 0 ? hands : legacy.hands,
       })
       hydrated.current = true
+      setReady(true)
     })()
     return () => { cancelled = true }
   }, [])
@@ -316,7 +326,7 @@ export function useTracker(): TrackerApi {
   }, [])
 
   return {
-    totals: log.totals, recent: log.hands,
+    totals: log.totals, recent: log.hands, hydrated: ready,
     setNote, recordDecision, completeHand, deleteHands, reset,
   }
 }

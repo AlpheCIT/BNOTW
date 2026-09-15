@@ -564,8 +564,15 @@ function preflopAdvice(
   const late = where === 'on the button' || where === 'in the cut-off'
   const forced = Math.max(BIG_BLIND, ...state.straddles.map((s) => s.amount))
   const raised = state.currentBet > forced
+  /*
+   * The grade leads and the number supports it, rather than the other way
+   * around. "Scores 10 on the Chen scale" was the first thing said on every
+   * pre-flop hand, which put a piece of jargon nobody had introduced at the
+   * top of the argument — and made a pre-flop shorthand read like the whole
+   * case. The information is identical; the emphasis is not.
+   */
   const reasons: string[] = [
-    `${starting.label} scores ${starting.chen} on the Chen scale — ${starting.grade.toLowerCase()}.`,
+    `${starting.label} is a ${starting.grade.toLowerCase()} starting hand (Chen ${starting.chen}).`,
     `You are ${where}.`,
   ]
   if (state.straddles.length > 0) {

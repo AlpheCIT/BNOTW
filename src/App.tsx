@@ -3,13 +3,17 @@ import {
   BUY_IN_CASH, BUY_IN_CHIPS, HIGH_ROLLER_FEE, money, owesHighRollerFee, signedMoney,
 } from './engine/bnotw'
 import type { Persona } from './engine/persona'
+import type { PlayerTotals } from './engine/playerStats'
 import { PROVIDERS, providerInfo } from './engine/providers'
 import { VOICES, voice, voiceName } from './engine/voices'
+import {
+  LAYERS, STARTING_LAYERS, allLayers, layerProgress, suggestLayer, type LayerId,
+} from './engine/layers'
 import type { BombPotTrigger, TableSettings } from './engine/table'
 import { blankNight, makeId, type GameNight, type NightPlayer } from './state/records'
 import {
-  loadBook, loadCoachCreds, loadHandNames, loadRoster, loadSettings, loadVoices,
-  saveBook, saveCoachCreds, saveHandNames, saveVoices,
+  loadBook, loadCoachCreds, loadHandNames, loadLayers, loadRoster, loadSettings, loadVoices,
+  saveBook, saveCoachCreds, saveHandNames, saveLayers, saveVoices,
   saveRoster, saveSettings, saveTableSnapshot,
   type CoachCreds, type RecordBook, type RosterState, type VoiceSettings,
 } from './state/storage'
@@ -116,6 +120,19 @@ export default function App() {
     setVoicesState(next)
     saveVoices(next)
   }, [])
+  /**
+   * Which coaching layers are on. Null until it has been decided.
+   *
+   * Never guessed at on the first render: a player who had the whole panel
+   * before layers existed must not open the app to find most of it gone, and
+   * telling them apart from a genuinely new player needs the history read back
+   * first. Until then everything shows, which is the safe way to be wrong.
+   */
+  const [layers, setLayersState] = useState<LayerId[] | null>(() => loadLayers())
+  const setLayers = useCallback((next: LayerId[]) => {
+    setLayersState(next)
+    saveLayers(next)
+  }, [])
   const [handNames, setHandNamesState] = useState(() => loadHandNames())
   const setHandNames = useCallback((next: Record<string, string>) => {
     setHandNamesState(next)
@@ -143,6 +160,32 @@ export default function App() {
   }), [coachCreds])
   const tableNarrator = useNarrator(prefs.coachEndpoint, narratorConfig)
   const reviewNarrator = useNarrator(prefs.coachEndpoint, narratorConfig)
+
+  /**
+   * Settle the layers once, the first time the history is readable.
+   *
+   * Anyone with decisions already on the record gets everything, because that
+   * is what they had. Anyone starting fresh gets one question.
+   */
+  useEffect(() => {
+    if (layers !== null || !tracker.hydrated) return
+    setLayers(tracker.totals.decisions > 0 ? allLayers() : [...STARTING_LAYERS])
+  }, [layers, setLayers, tracker.hydrated, tracker.totals.decisions])
+
+  const activeLayers = layers ?? allLayers()
+
+  /**
+   * The next layer worth offering, once dismissed for the session.
+   *
+   * Session-scoped rather than stored: a suggestion declined in March is not a
+   * suggestion declined forever, and nagging is what makes a prompt something
+   * people learn to tap past without reading.
+   */
+  const [waved, setWaved] = useState<LayerId[]>([])
+  const nextLayer = useMemo(() => {
+    const suggestion = suggestLayer(tracker.totals, activeLayers)
+    return suggestion && !waved.includes(suggestion.layer.id) ? suggestion : null
+  }, [tracker.totals, activeLayers, waved])
 
   useEffect(() => { saveSettings(prefs) }, [prefs])
   useEffect(() => {
@@ -301,15 +344,40 @@ export default function App() {
               >
                 Fresh table
               </button>
+              <LayerPicker
+                layers={activeLayers}
+                onChange={setLayers}
+                totals={tracker.totals}
+              />
               <VoicePicker voices={voices} onChange={setVoices} />
               <button className="btn small ghost" onClick={() => setShowCoachStats(true)}>
                 Your stats
               </button>
             </div>
+            {nextLayer && (
+              <div className="layer-offer">
+                <b>Ready for more?</b>
+                <span>{nextLayer.because}</span>
+                <span className="spacer" />
+                <button
+                  className="btn small"
+                  onClick={() => setLayers([...activeLayers, nextLayer.layer.id])}
+                >
+                  Turn on {nextLayer.layer.name}
+                </button>
+                <button
+                  className="btn small ghost"
+                  onClick={() => setWaved((prev) => [...prev, nextLayer.layer.id])}
+                >
+                  Not yet
+                </button>
+              </div>
+            )}
             <TableView
               game={coachGame}
               onCashOut={() => {}}
               coach={coach}
+              layers={activeLayers}
               tracker={tracker}
               mode="coach"
               narrator={tableNarrator}
@@ -411,6 +479,101 @@ export default function App() {
         </div>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Which questions the coach is answering.
+ *
+ * Presented as layers to turn on rather than levels to beat, which is what
+ * stops it being a progress bar you feel behind on. Order is a suggestion, not
+ * a lock: anyone can turn on all four on their first hand, and the reason to
+ * start narrow is written where the choice is made rather than assumed.
+ *
+ * Each row shows how the record looks for that layer, so the state of the
+ * thing is visible whether or not the app happens to be suggesting it.
+ */
+function LayerPicker({
+  layers, onChange, totals,
+}: {
+  layers: readonly LayerId[]
+  onChange: (layers: LayerId[]) => void
+  totals: PlayerTotals
+}) {
+  const [open, setOpen] = useState(false)
+  const on = (id: LayerId) => layers.includes(id)
+
+  const toggle = (id: LayerId) => {
+    onChange(on(id) ? layers.filter((l) => l !== id) : [...layers, id])
+  }
+
+  return (
+    <>
+      <button className="btn small ghost" onClick={() => setOpen(true)}>
+        {layers.length === LAYERS.length
+          ? 'All layers'
+          : `${layers.length} of ${LAYERS.length} layers`}
+      </button>
+
+      {open && (
+        <div className="overlay" onClick={() => setOpen(false)}>
+          <div className="dialog wide" onClick={(e) => e.stopPropagation()}>
+            <h2>What the coach shows</h2>
+            <p className="sub">
+              Everything at once is a dashboard, not a lesson. Turn on one
+              question at a time and the answer to it is the only thing on
+              screen — or turn them all on, if what you want is the dashboard.
+            </p>
+
+            <div className="resetlist">
+              {LAYERS.map((l) => {
+                const progress = layerProgress(totals, l.id)
+                return (
+                  <label key={l.id} className={`resetrow ${on(l.id) ? 'on' : ''}`}>
+                    <input type="checkbox" checked={on(l.id)} onChange={() => toggle(l.id)} />
+                    <div>
+                      <div className="resetlabel">
+                        {l.name}
+                        {progress.settled && <span className="tag gold">Settled</span>}
+                      </div>
+                      <div className="sub"><i>{l.question}</i> {l.shows}</div>
+                      <div className="sub faint" style={{ marginTop: 3 }}>
+                        {!progress.measurable
+                          ? 'Nothing in your record can tell you when you have got the hang of this one.'
+                          : progress.rate === null
+                            ? `${progress.decisions} decisions so far — not enough to say yet.`
+                            : `${progress.slips} slip${progress.slips === 1 ? '' : 's'} `
+                              + `in ${progress.decisions} decisions.`}
+                      </div>
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
+
+            <div className="row" style={{ gap: 8, marginTop: 10 }}>
+              <button className="btn primary" onClick={() => setOpen(false)}>Done</button>
+              <button
+                className="btn small ghost"
+                onClick={() => onChange(allLayers())}
+                disabled={layers.length === LAYERS.length}
+              >
+                Show everything
+              </button>
+              <button
+                className="btn small ghost"
+                onClick={() => onChange([...STARTING_LAYERS])}
+                disabled={layers.length === STARTING_LAYERS.length && on('price')}
+              >
+                Back to the price
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

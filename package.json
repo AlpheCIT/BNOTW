@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "calibrate": "BNOTW_CALIBRATE=1 vitest run src/engine/calibration.test.ts",
     "typecheck": "tsc -b && tsc --noEmit -p tsconfig.api.json",
-    "coach": "node server/dev-proxy.mjs"
+    "coach": "node server/dev-proxy.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
@@ -21,6 +23,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/node": "^26.5.1",

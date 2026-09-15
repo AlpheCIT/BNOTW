@@ -11,5 +11,9 @@ export default defineConfig({
     // `@vitest-environment jsdom` docblock rather than slowing everything.
     environment: 'node',
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // The browser suite is Playwright's, and its files would fail loudly if
+    // Vitest picked them up: `@playwright/test` has its own `test` and
+    // `expect` and no DOM to attach to.
+    exclude: ['e2e/**', 'node_modules/**', 'dist/**'],
   },
 })

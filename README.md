@@ -1206,6 +1206,66 @@ public/            icons and the web app manifest
 
 ## Testing
 
+### The browser suite
+
+Three viewports, 45 tests, about three minutes: `npm run test:e2e`. It runs in
+CI alongside the unit suite.
+
+It exists because the unit and component tests are thorough and have missed, in
+two sessions: a service worker that precached every asset and served none of
+them, a form taller than an iPad, a table that dealt no hand after switching
+player, and a gate that could trap you with no way out. Every one was found by
+opening a browser by hand.
+
+The common thread is that jsdom has no layout, no service worker, no network
+and no real event loop — a component can be structurally perfect and useless.
+So these tests are deliberately few, and each covers a class of failure that
+has actually shipped rather than re-testing what Vitest already proves.
+
+**Every one was checked by reintroducing the bug it exists for.** Removing
+`ignoreVary` from the service worker fails three of the offline tests; putting
+the old experience cards and the leaking `.field` rules back fails the layout
+test. A test that cannot fail is worse than no test, because it implies
+coverage of the exact thing it does not cover.
+
+One was deleted for failing that check. It walked the cache asking for each
+entry with and without `ignoreVary`, which sounded like a direct probe of the
+bug and passed with the bug deliberately reintroduced — matching a stored entry
+against its own cache key never trips the `Vary` mismatch, which only happens
+between the precache request and the one the page later makes.
+
+#### iPad landscape is in the set on purpose
+
+At 834px tall it is the tightest vertical case, and it is the orientation the
+report that started this suite came from. A portrait-only run passed the very
+regression the layout test was written for, because 1194px of height forgives a
+form that a real device does not.
+
+#### About the helper
+
+`playHands` throws with the buttons that were on screen when the table stops,
+rather than returning a short count. It used to return quietly, and it counted
+`""` and `#0` as hands while the status bar was still settling — so it reported
+three hands when one had been played, and every assertion built on it passed
+without meaning anything. It also has to answer the misclick confirmation
+sheet, which is not optional: a driver that ignores it sits waiting for buttons
+that are behind an `alertdialog`.
+
+It takes about four seconds a hand. Two attempts to cut that — running the
+table on its fast setting, and skipping the guard wait for buttons that do not
+have one — each made it *slower*, so the bottleneck is not where it looks.
+Tests ask for as few hands as they can instead.
+
+#### One trap worth knowing
+
+`reuseExistingServer` is on outside CI, so a preview server left running from
+earlier will be reused and the build will **not** be refreshed. A verification
+run against a stale build looks exactly like a passing one. Stop the server
+first when checking that a test catches a change to the built output.
+
+### The rest
+
+
 Every push and pull request runs typecheck, the suite and a production build
 (`.github/workflows/ci.yml`). The long skill measurement runs as its own job so
 that minutes of CPU cannot hide a fast failure behind them.

@@ -985,6 +985,78 @@ keep a copy or move the book to another device, and **Import JSON** to merge it
 back — nights are matched by id, so re-importing an edited night updates it
 rather than duplicating it. CSV exports are there for spreadsheets.
 
+## Poker, and the house rules on top
+
+The house rules are genuinely strange. Bomb pots deal the flop before anyone
+acts, straddles move who speaks last, and the Dexter pays a bounty for winning
+with the worst hand in poker. Left woven through the engine, the rules of poker
+could not be read, tested or reused without them — and one bug had already come
+from exactly that, drill mode dealing practice spots into bomb pots because the
+monotone-flop trigger fired inside the core street logic.
+
+So they are two layers now:
+
+```
+engine/
+  core/          the rules of poker
+    state.ts       who is in the hand, and how chips reach the middle
+    betting.ts     a betting round: who acts, what they may do, what it costs
+    streets.ts     burn, deal, decide whether anyone may bet
+    pots.ts        side pots by commitment level, odd chips left of the button
+    showdown.ts    best five cards take each pot they were eligible for
+  rules/         what BNOTW does on top
+    straddle.ts    a blind raise that buys the last word
+    bombPot.ts     everybody antes; and the flop that arms the next one
+    dexter.ts      the 7-2 bounty
+  hand.ts        wires the two together
+```
+
+**Nothing in `core/` imports anything from `rules/`.** That direction is
+checked by a test rather than trusted, because it is the kind of thing that
+erodes one convenient import at a time — and the test is verified to fail when
+the rule is broken, not merely to pass when it is kept. It also catches the
+quieter version: `core/` reading `state.pendingDexter` directly does the same
+damage as importing it.
+
+The seams are deliberate and small:
+
+- **A named bet** — "Bob-aloo ($1.75)" — is a joke this table shares, not a
+  rule of poker, so `applyAction` takes the formatter rather than importing it.
+- **A monotone flop** arming the next bomb pot happens *after* the street is
+  dealt, in `hand.ts`, never during. Dealing a board is poker; what this table
+  makes of three hearts is not.
+- **The Dexter** is looked for only once the pots are awarded, which makes it
+  impossible for a house rule to change who actually won.
+
+### Still free functions over plain data
+
+The obvious refactor here is a class hierarchy — `Hand` owning a `Deck`, a
+`BettingRound`, a `PotManager`. It would read more tidily and it would quietly
+break two things: `HandState` crosses a `structuredClone` boundary to reach the
+coach worker, and class instances do not survive that. A test walks a real
+in-progress hand asserting no functions and no class instances anywhere in it,
+because the alternative is finding out at runtime, in a browser, in a worker.
+
+## Where the data lives, key by key
+
+`state/keys.ts` lists every stored key, what it holds and whose it is. It
+exists because deleting a player had a hand-typed list of keys in it: add a
+per-player key, forget that list, and removing somebody leaves their records
+for whoever reuses the id — a bug with no error, no failing test and no symptom
+until someone else's hands appear in a new player's history. The list is
+derived from the registry now, and a test scans the source for `bnotw.*` key
+literals and fails if any is unregistered.
+
+The split is not "personal versus shared" but **whose record is it a record
+of**. Your hands, practice, rating and the table you were sitting at are
+yours. The Record Book, the roster, the hand names and the coaches are the
+crew's — scoping those per player would mean Dave opening the app and finding
+nobody owes anybody anything.
+
+A table in progress counts as the player's, which was a live bug until this
+work: handing the iPad over used to sit the next person behind your chips, and
+cashing out would then have recorded your night under their name.
+
 ## Layout
 
 ```
@@ -1023,7 +1095,7 @@ Every push and pull request runs typecheck, the suite and a production build
 (`.github/workflows/ci.yml`). The long skill measurement runs as its own job so
 that minutes of CPU cannot hide a fast failure behind them.
 
-525 tests, all in `npm test`:
+553 tests, all in `npm test`:
 
 - The hand evaluator is checked against the exact frequency distribution of all
   2,598,960 five-card hands (40 straight flushes, 624 quads, and so on).

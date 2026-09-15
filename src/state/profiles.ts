@@ -30,6 +30,7 @@
  */
 
 import { allLayers, STARTING_LAYERS, type LayerId } from '../engine/layers'
+import { playerKeys } from './keys'
 
 const PROFILES_KEY = 'bnotw.profiles.v1'
 const ACTIVE_KEY = 'bnotw.activeprofile.v1'
@@ -265,9 +266,10 @@ export async function forgetProfile(profileId: string): Promise<void> {
   if (profileId === DEFAULT_PROFILE_ID || profileId === GUEST_ID) return
 
   if (typeof localStorage !== 'undefined') {
-    for (const base of [
-      'bnotw.player.v1', 'bnotw.drill.v1', 'bnotw.coach.v1', 'bnotw.layers.v1',
-    ]) {
+    // Derived, never typed out. A hand-written list here was the reason
+    // `keys.ts` exists: a per-player key added later and missed would leave
+    // records behind for whoever reused the id.
+    for (const base of playerKeys()) {
       try {
         localStorage.removeItem(scopedKey(base, profileId))
       } catch {

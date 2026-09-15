@@ -333,14 +333,25 @@ export function saveCoachCreds(creds: CoachCreds): void {
  * that a browser reclaiming the tab — which iOS does routinely when you switch
  * apps — does not quietly reset your stack and buy-in count.
  */
-function keyFor(mode: PlayMode): string {
-  return mode === 'coach' ? COACH_TABLE_KEY : TABLE_KEY
+/**
+ * Where a table in progress lives.
+ *
+ * Per player, because a stack and a buy-in count belong to whoever built them.
+ * Shared, handing the iPad to Dave would sit him down behind your chips — and
+ * cashing out would then record your night under his name.
+ */
+function keyFor(mode: PlayMode, profileId: string): string {
+  return scopedKey(mode === 'coach' ? COACH_TABLE_KEY : TABLE_KEY, profileId)
 }
 
-export function loadTableSnapshot(mode: PlayMode = 'table'): TableSnapshot | null {
-  if (typeof localStorage === 'undefined') return null
+export function loadTableSnapshot(
+  mode: PlayMode = 'table',
+  profileId = DEFAULT_PROFILE_ID,
+): TableSnapshot | null {
+  // A guest gets a fresh table every time, which is the point of a guest.
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return null
   try {
-    const raw = localStorage.getItem(keyFor(mode))
+    const raw = localStorage.getItem(keyFor(mode, profileId))
     if (!raw) return null
     const data = JSON.parse(raw) as TableSnapshot
     // Anything more than a shape check belongs to Table.restore, which has to
@@ -352,11 +363,15 @@ export function loadTableSnapshot(mode: PlayMode = 'table'): TableSnapshot | nul
 }
 
 /** Pass null to end the session — after a cash-out, or on a fresh deal. */
-export function saveTableSnapshot(mode: PlayMode, snapshot: TableSnapshot | null): void {
-  if (typeof localStorage === 'undefined') return
+export function saveTableSnapshot(
+  mode: PlayMode,
+  snapshot: TableSnapshot | null,
+  profileId = DEFAULT_PROFILE_ID,
+): void {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return
   try {
-    if (snapshot) localStorage.setItem(keyFor(mode), JSON.stringify(snapshot))
-    else localStorage.removeItem(keyFor(mode))
+    if (snapshot) localStorage.setItem(keyFor(mode, profileId), JSON.stringify(snapshot))
+    else localStorage.removeItem(keyFor(mode, profileId))
   } catch {
     // Out of quota, or private browsing. The session simply will not survive
     // being closed, which is exactly where this started — and never a reason

@@ -157,8 +157,8 @@ export default function App() {
   // Both are remembered across a reload, each under its own mode. A coach
   // session is still not a night — it never reaches the Record Book — but
   // losing one to a reclaimed tab is as annoying as losing a real one.
-  const game = useGame(tableSettings, tab === 'table', 'table')
-  const coachGame = useGame(tableSettings, tab === 'coach', 'coach')
+  const game = useGame(tableSettings, tab === 'table', 'table', profileId)
+  const coachGame = useGame(tableSettings, tab === 'coach', 'coach', profileId)
   const coach = useCoach(profileId)
   const tracker = useTracker(profileId)
   const update = useAppUpdate()
@@ -302,8 +302,8 @@ export default function App() {
       voices: setVoices,
       handNames: setHandNames,
       tables: () => {
-        saveTableSnapshot('table', null)
-        saveTableSnapshot('coach', null)
+        saveTableSnapshot('table', null, profileId)
+        saveTableSnapshot('coach', null, profileId)
         game.restart({ ...prefs, opponents })
         coachGame.restart({ ...prefs, opponents })
       },
@@ -311,7 +311,7 @@ export default function App() {
     })
   }, [
     tracker.reset, drill.reset, coach.reset, setRoster, setVoices, setHandNames,
-    setBook, game, coachGame, prefs, opponents,
+    setBook, game, coachGame, prefs, opponents, profileId,
   ])
 
   /** Seat changes need a fresh deal; stacks from the old line-up mean nothing. */

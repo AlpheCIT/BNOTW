@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { mulberry32, Shoe } from './cards'
 import { profileOf, decideAction } from './ai'
 import {
-  ARCHETYPES, archetype, defaultRoster, faceFor, matchArchetype,
-  personaFromArchetype, styleSummary, type Persona, type Skill,
+  ARCHETYPES, DEFAULT_TENDENCIES, TENDENCY_META, archetype, defaultRoster, faceFor,
+  matchArchetype, personaFromArchetype, styleSummary, type Persona, type Skill,
 } from './persona'
 import { dealHand } from './hand'
 import { Table } from './table'
@@ -176,5 +176,42 @@ describe('the table seats the chosen personas', () => {
     const shy = keen.map((p) => ({ ...p, tendencies: { ...p.tendencies, straddle: 0 } }))
     const quiet = new Table({ opponents: shy, bombPotTrigger: 'off' }, 12)
     expect(quiet.startHand().straddles).toHaveLength(0)
+  })
+})
+
+describe('bet size as its own dial', () => {
+  it('is separate from how often they bet', () => {
+    // A calling station and a maniac can share an aggression score and be
+    // nothing alike; the size is usually what people remember.
+    const station = archetype('station')!.tendencies
+    const maniac = archetype('maniac')!.tendencies
+    expect(maniac.betSizing).toBeGreaterThan(station.betSizing)
+  })
+
+  it('turns the dial into a multiplier around one', () => {
+    const at = (betSizing: number) =>
+      profileOf({ ...personaFromArchetype('X', 'grinder', 'x'), tendencies: {
+        ...archetype('grinder')!.tendencies, betSizing,
+      } }).sizing
+
+    expect(at(50)).toBeCloseTo(1.05, 1)
+    expect(at(0)).toBeLessThan(at(50))
+    expect(at(100)).toBeGreaterThan(at(50))
+    // Bounded, so nobody bets a quarter of a blind or four times the pot.
+    expect(at(0)).toBeGreaterThan(0.5)
+    expect(at(100)).toBeLessThan(1.6)
+  })
+
+  it('fills in for a persona saved before the dial existed', () => {
+    const { betSizing, ...older } = archetype('grinder')!.tendencies
+    void betSizing
+    const filled = { ...DEFAULT_TENDENCIES, ...older }
+    // Not zero, which is what a missing value would otherwise mean.
+    expect(filled.betSizing).toBe(DEFAULT_TENDENCIES.betSizing)
+    expect(filled.looseness).toBe(older.looseness)
+  })
+
+  it('offers the dial in the Players tab like every other tendency', () => {
+    expect(TENDENCY_META.some((m) => m.key === 'betSizing')).toBe(true)
   })
 })

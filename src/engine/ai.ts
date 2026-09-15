@@ -31,6 +31,11 @@ export interface BotProfile {
   callTightness: number
   /** 0..1 — willingness to put the stack in. */
   gamble: number
+  /**
+   * Multiplier on every bet and raise. 1 is the house's ordinary sizing;
+   * below plays small-ball, above overbets.
+   */
+  sizing: number
   /** Monte Carlo trials; better players get a sharper read. */
   trials: number
   /** 0..1 — how much they adjust to the opponents in front of them. */
@@ -82,7 +87,7 @@ export const ADAPT_BY_SKILL = [0, 0, 0.15, 0.6, 1]
  * them. Those two biases are what actually moves money across the table.
  */
 export function profileOf(persona: Persona): BotProfile {
-  const { looseness, aggression, bluffing, chasing, gamble } = persona.tendencies
+  const { looseness, aggression, bluffing, chasing, gamble, betSizing } = persona.tendencies
   const i = Math.max(0, Math.min(4, persona.skill - 1))
   return {
     openThreshold: 13 - (looseness / 100) * 12,
@@ -90,6 +95,10 @@ export function profileOf(persona: Persona): BotProfile {
     bluff: (bluffing / 100) * 0.5,
     callTightness: 1.35 - (chasing / 100) * 0.8,
     gamble: gamble / 100,
+    // 50 on the dial is 1.0 here, running from 0.6 at small-ball to 1.5 at
+    // full overbet — enough to be recognisable across a night without anyone
+    // betting a quarter of the blind or four times the pot.
+    sizing: 0.6 + ((betSizing ?? 45) / 100) * 0.9,
     trials: TRIALS_BY_SKILL[i],
     noise: NOISE_BY_SKILL[i],
     optimism: OPTIMISM_BY_SKILL[i],
@@ -268,8 +277,16 @@ export function decideAction({ state, seats, seat, rng, trials, reads }: BotCont
       (strength < 0.3 && rng() < bluffChance)
     if (!wantsToBet || !legal.canBet) return { kind: 'check' }
 
-    const fraction = strength > 0.8 ? 0.7 : strength > 0.6 ? 0.55 : 0.4
-    const base = Math.max(BIG_BLIND, pot * fraction)
+    /*
+     * House sizing, then the player's own.
+     *
+     * The band came down from 40-70% of pot: this is a conservative home
+     * game where a Bob-aloo is a real bet, and the table was firing bigger
+     * than the room it is modelled on. Anyone who does bet big now says so
+     * through their own dial rather than everybody doing it.
+     */
+    const fraction = strength > 0.8 ? 0.6 : strength > 0.6 ? 0.45 : 0.33
+    const base = Math.max(BIG_BLIND, pot * fraction * style.sizing)
     return { kind: 'bet', amount: sizeBet(base, strength, stack, style.gamble, legal, rng) }
   }
 
@@ -301,8 +318,8 @@ export function decideAction({ state, seats, seat, rng, trials, reads }: BotCont
   const facingBigBet = toCall > pot * 0.6
   const raiseBar = facingBigBet ? 0.82 : 0.66 + (1 - style.aggression) * 0.1
   if (strength > raiseBar && legal.canRaise && rng() < style.aggression) {
-    const fraction = strength > 0.88 ? 1.0 : 0.6
-    const amount = state.currentBet + Math.max(BIG_BLIND, pot * fraction)
+    const fraction = strength > 0.88 ? 0.85 : 0.5
+    const amount = state.currentBet + Math.max(BIG_BLIND, pot * fraction * style.sizing)
     return { kind: 'raise', amount: sizeBet(amount, sober, stack, style.gamble, legal, rng) }
   }
 

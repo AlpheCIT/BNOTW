@@ -5,7 +5,7 @@
  * reloads but never leaves the device. Export to JSON to move it or back it up.
  */
 
-import { defaultRoster, type Persona } from '../engine/persona'
+import { DEFAULT_TENDENCIES, defaultRoster, type Persona } from '../engine/persona'
 import type { TableSnapshot } from '../engine/table'
 import type { PlayMode } from '../engine/playerStats'
 import type { ProviderId } from '../engine/providers/types'
@@ -127,12 +127,20 @@ export function loadRoster(): RosterState {
     const ids = new Set(data.players.map((p) => p.id))
     return {
       version: 1,
-      players: data.players,
+      // Rosters saved before a tendency existed have no value for it, and a
+      // missing dial would read as zero — turning everyone into a small-ball
+      // player overnight. Filled from the defaults instead.
+      players: data.players.map(withTendencyDefaults),
       seated: (data.seated ?? []).filter((id) => ids.has(id)),
     }
   } catch {
     return defaultRosterState()
   }
+}
+
+/** Fill in any tendency a stored persona predates. */
+function withTendencyDefaults(persona: Persona): Persona {
+  return { ...persona, tendencies: { ...DEFAULT_TENDENCIES, ...persona.tendencies } }
 }
 
 export function saveRoster(roster: RosterState): void {

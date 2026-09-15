@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { reviewDecision, type DecisionReview } from '../engine/coach'
 import { nextSpot, type DrillSpot } from '../engine/drill'
 import type { Persona } from '../engine/persona'
+import { DEFAULT_PROFILE_ID } from '../state/profiles'
 import type { PlayerTotals } from '../engine/playerStats'
 import type { Action } from '../engine/types'
 import {
@@ -36,12 +37,16 @@ export function useDrill(
   totals: PlayerTotals,
   playerName: string,
   active: boolean,
+  profileId: string = DEFAULT_PROFILE_ID,
 ): DrillApi {
   const [spot, setSpot] = useState<DrillSpot | null>(null)
   const [review, setReview] = useState<DecisionReview | null>(null)
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState(false)
-  const [stats, setStats] = useState<DrillStats>(() => loadDrillStats())
+  const [stats, setStats] = useState<DrillStats>(() => loadDrillStats(profileId))
+
+  // Practice history belongs to whoever is playing, like everything else.
+  useEffect(() => { setStats(loadDrillStats(profileId)) }, [profileId])
 
   // The spot after this one, dealt early and waiting.
   const queued = useRef<DrillSpot | null>(null)
@@ -126,7 +131,7 @@ export function useDrill(
           },
         },
       }
-      saveDrillStats(next)
+      saveDrillStats(next, profileId)
       return next
     })
 
@@ -150,7 +155,7 @@ export function useDrill(
   const reset = useCallback(() => {
     const fresh = emptyDrillStats()
     setStats(fresh)
-    saveDrillStats(fresh)
+    saveDrillStats(fresh, profileId)
   }, [])
 
   return { spot, review, loading, failed, stats, answer, next, reset }

@@ -3,10 +3,11 @@
  * and the leak report built from them.
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { reviewDecision, type CoachAdvice, type DecisionReview } from '../engine/coach'
 import type { Action } from '../engine/types'
 import { emptyCoachStats, loadCoachStats, saveCoachStats, type CoachStats } from '../state/storage'
+import { DEFAULT_PROFILE_ID } from '../state/profiles'
 
 export interface CoachApi {
   xray: boolean
@@ -20,15 +21,22 @@ export interface CoachApi {
 }
 
 
-export function useCoach(): CoachApi {
+export function useCoach(profileId: string = DEFAULT_PROFILE_ID): CoachApi {
   const [xray, setXray] = useState(false)
-  const [stats, setStats] = useState<CoachStats>(() => loadCoachStats())
+  const [stats, setStats] = useState<CoachStats>(() => loadCoachStats(profileId))
   const [lastReview, setLastReview] = useState<DecisionReview | null>(null)
+
+  // Switching player swaps the scorecard, rather than keeping the last
+  // person's agreement rate on screen under a new name.
+  useEffect(() => {
+    setStats(loadCoachStats(profileId))
+    setLastReview(null)
+  }, [profileId])
 
   const persist = useCallback((next: CoachStats) => {
     setStats(next)
-    saveCoachStats(next)
-  }, [])
+    saveCoachStats(next, profileId)
+  }, [profileId])
 
   const record = useCallback((advice: CoachAdvice, action: Action) => {
     const review = reviewDecision(advice, action)
@@ -43,15 +51,15 @@ export function useCoach(): CoachApi {
         evLost: prev.evLost + review.evLost,
         leaks,
       }
-      saveCoachStats(next)
+      saveCoachStats(next, profileId)
       return next
     })
-  }, [])
+  }, [profileId])
 
   const countHand = useCallback(() => {
     setStats((prev) => {
       const next = { ...prev, handsPlayed: prev.handsPlayed + 1 }
-      saveCoachStats(next)
+      saveCoachStats(next, profileId)
       return next
     })
   }, [])

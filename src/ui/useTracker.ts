@@ -27,6 +27,7 @@ import {
 import type { Table } from '../engine/table'
 import type { Action, HandState } from '../engine/types'
 import { loadPlayerLog, savePlayerLog, type PlayerLog } from '../state/storage'
+import { DEFAULT_PROFILE_ID, isGuestId } from '../state/profiles'
 import {
   RECENT_IN_MEMORY, appendHand, countHands, deleteHands as deleteHands_db, openDb,
   readRecentHands, readTotals, replaceAll, setNote as setNote_db,
@@ -119,7 +120,14 @@ function blank(handNumber: number): InProgress {
   }
 }
 
-export function useTracker(): TrackerApi {
+/**
+ * @param profileId whose history this is. A guest's is never written down, so
+ *   their session starts empty, stays in memory and leaves nothing behind —
+ *   which is the point of handing the iPad over without it costing you your
+ *   own record.
+ */
+export function useTracker(profileId: string = DEFAULT_PROFILE_ID): TrackerApi {
+  const guest = isGuestId(profileId)
   // Starts empty and hydrates, because IndexedDB cannot be read synchronously.
   const [log, setLog] = useState<PlayerLog>(() => ({
     version: 1, totals: emptyTotals(), hands: [],
@@ -140,12 +148,32 @@ export function useTracker(): TrackerApi {
   // hand 1. The weak set also lets finished hands be collected.
   const completed = useRef(new WeakSet<HandState>())
 
-  // Read the history back, migrating the old localStorage log the first time.
+  /*
+   * Read this profile's history back, and re-read it when the profile changes.
+   *
+   * Switching player is a full reload of the record rather than a filter over
+   * one in memory, so there is never a moment where one person's totals are on
+   * screen under another person's name.
+   */
   useEffect(() => {
     let cancelled = false
+    hydrated.current = false
+    setReady(false)
+    setLog({ version: 1, totals: emptyTotals(), hands: [] })
+    completed.current = new WeakSet<HandState>()
+    current.current = blank(-1)
+
+    if (guest) {
+      // Nothing to read and nothing that will ever be written.
+      usingDb.current = false
+      hydrated.current = true
+      setReady(true)
+      return () => { cancelled = true }
+    }
+
     void (async () => {
       const db = await openDb()
-      const legacy = loadPlayerLog()
+      const legacy = loadPlayerLog(profileId)
 
       if (!db) {
         // No IndexedDB: carry on exactly as before.
@@ -154,14 +182,16 @@ export function useTracker(): TrackerApi {
       }
       usingDb.current = true
 
-      const stored = await countHands()
+      const stored = await countHands(profileId)
       if (stored === 0 && (legacy.hands.length > 0 || legacy.totals.hands > 0)) {
         // One-time move. The old copy is left alone rather than deleted, so a
         // failed migration is recoverable and an older build still opens.
-        await replaceAll(legacy.hands, legacy.totals)
+        await replaceAll(legacy.hands, legacy.totals, profileId)
       }
 
-      const [totals, hands] = await Promise.all([readTotals(), readRecentHands()])
+      const [totals, hands] = await Promise.all([
+        readTotals(profileId), readRecentHands(profileId),
+      ])
       if (cancelled) return
       setLog({
         version: 1,
@@ -172,7 +202,7 @@ export function useTracker(): TrackerApi {
       setReady(true)
     })()
     return () => { cancelled = true }
-  }, [])
+  }, [profileId, guest])
 
   const forHand = (handNumber: number) => {
     if (current.current.handNumber !== handNumber) current.current = blank(handNumber)
@@ -260,17 +290,17 @@ export function useTracker(): TrackerApi {
         // Only the window the UI reads is kept in memory; the store keeps all
         // of it. One append per hand rather than rewriting the whole history.
         const hands = [record, ...prev.hands].slice(0, RECENT_IN_MEMORY)
-        if (hydrated.current) void appendHand(record, totals)
+        if (hydrated.current) void appendHand(record, totals, profileId)
         return { version: 1, totals, hands }
       }
 
       const hands = trimForStorage([record, ...prev.hands])
       const next: PlayerLog = { version: 1, totals, hands }
-      if (hydrated.current) savePlayerLog(next)
+      if (hydrated.current) savePlayerLog(next, profileId)
       return next
     })
     current.current = blank(-1)
-  }, [])
+  }, [profileId])
 
   const setNote = useCallback((at: number, note: string) => {
     const trimmed = note.trim()
@@ -282,11 +312,11 @@ export function useTracker(): TrackerApi {
       ))
       const next: PlayerLog = { ...prev, hands }
       if (!hydrated.current) return next
-      if (usingDb.current) void setNote_db(at, trimmed)
-      else savePlayerLog({ ...next, hands: trimForStorage(hands) })
+      if (usingDb.current) void setNote_db(at, trimmed, profileId)
+      else savePlayerLog({ ...next, hands: trimForStorage(hands) }, profileId)
       return next
     })
-  }, [])
+  }, [profileId])
 
   /**
    * Erase hands you would rather were not part of your record.
@@ -309,11 +339,11 @@ export function useTracker(): TrackerApi {
       const totals = going.reduce((acc, hand) => unaccumulate(acc, hand), prev.totals)
       const next: PlayerLog = { ...prev, totals, hands }
       if (!hydrated.current) return next
-      if (usingDb.current) void deleteHands_db(going.map((hand) => hand.at), totals)
-      else savePlayerLog({ ...next, hands: trimForStorage(hands) })
+      if (usingDb.current) void deleteHands_db(going.map((hand) => hand.at), totals, profileId)
+      else savePlayerLog({ ...next, hands: trimForStorage(hands) }, profileId)
       return next
     })
-  }, [])
+  }, [profileId])
 
   const reset = useCallback(() => {
     const next: PlayerLog = { version: 1, totals: emptyTotals(), hands: [] }
@@ -321,10 +351,10 @@ export function useTracker(): TrackerApi {
     current.current = blank(-1)
     // Cleared in both places: leaving the old localStorage copy behind would
     // have it migrated straight back the next time the database is empty.
-    savePlayerLog(next)
-    if (usingDb.current) void replaceAll([], next.totals)
+    savePlayerLog(next, profileId)
+    if (usingDb.current) void replaceAll([], next.totals, profileId)
     setLog(next)
-  }, [])
+  }, [profileId])
 
   return {
     totals: log.totals, recent: log.hands, hydrated: ready,

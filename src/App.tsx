@@ -19,9 +19,15 @@ import {
 } from './state/storage'
 import { backupIsOverdue, requestPersistentStorage, shareBackup } from './state/backup'
 import { applyReset, type ResetAreaId } from './state/factory'
+import {
+  DEFAULT_PROFILE_ID, displayName, experienceMeta, guestProfile, hasLegacyHistory,
+  forgetProfile, initialsFor, isGuest, loadActiveProfile, loadProfiles, makeProfile,
+  saveActiveProfile, saveProfiles, type LocalProfile,
+} from './state/profiles'
 import { CoachScorecard } from './ui/CoachPanel'
 import { DrillView } from './ui/DrillView'
 import { PlayersView } from './ui/Players'
+import { PlayerForm, PlayerPicker } from './ui/PlayerPicker'
 import { RecordBookView } from './ui/RecordBook'
 import { ResetDialog } from './ui/ResetDialog'
 import { RulesView } from './ui/RulesView'
@@ -80,6 +86,50 @@ function seatedPersonas(roster: RosterState): Persona[] {
 }
 
 export default function App() {
+  /**
+   * Who is playing, and every record that follows from it.
+   *
+   * `null` means nobody has been chosen yet, which puts the picker up before
+   * anything else. A guest is a profile that is never stored: everything they
+   * play stays in memory and leaves nothing behind, which is what makes
+   * handing the iPad over cost nobody their record.
+   */
+  const [profiles, setProfilesState] = useState<LocalProfile[]>(() => {
+    const stored = loadProfiles()
+    if (stored.length > 0) return stored
+    // Somebody has been playing since before profiles existed. Their history
+    // lives under the unscoped keys, so the default profile is theirs — seeded
+    // rather than left for them to find as a stranger's empty record.
+    if (hasLegacyHistory()) {
+      const name = loadSettings(DEFAULT_PREFS).playerName || 'Me'
+      return [makeProfile({ id: DEFAULT_PROFILE_ID, name })]
+    }
+    return []
+  })
+  const [player, setPlayer] = useState<LocalProfile | null>(() => {
+    const stored = loadProfiles()
+    const id = loadActiveProfile()
+    if (id) {
+      const found = stored.find((p) => p.id === id)
+      if (found) return found
+    }
+    // One profile and nobody else to confuse it with: no need to ask.
+    if (stored.length === 0 && hasLegacyHistory()) {
+      const name = loadSettings(DEFAULT_PREFS).playerName || 'Me'
+      return makeProfile({ id: DEFAULT_PROFILE_ID, name })
+    }
+    return null
+  })
+  const [switching, setSwitching] = useState(false)
+  const [editingPlayer, setEditingPlayer] = useState<LocalProfile | null>(null)
+  const profileId = player?.id ?? DEFAULT_PROFILE_ID
+  const guest = isGuest(player)
+
+  const setProfiles = useCallback((next: LocalProfile[]) => {
+    setProfilesState(next)
+    saveProfiles(next)
+  }, [])
+
   const [tab, setTab] = useState<Tab>('table')
   const [prefs, setPrefs] = useState<Preferences>(() => loadSettings(DEFAULT_PREFS))
   const [book, setBookState] = useState<RecordBook>(() => loadBook())
@@ -109,8 +159,8 @@ export default function App() {
   // losing one to a reclaimed tab is as annoying as losing a real one.
   const game = useGame(tableSettings, tab === 'table', 'table')
   const coachGame = useGame(tableSettings, tab === 'coach', 'coach')
-  const coach = useCoach()
-  const tracker = useTracker()
+  const coach = useCoach(profileId)
+  const tracker = useTracker(profileId)
   const update = useAppUpdate()
   // Offered after a night is recorded, which is the one moment there is
   // something new worth keeping and nobody is mid-hand.
@@ -128,11 +178,13 @@ export default function App() {
    * telling them apart from a genuinely new player needs the history read back
    * first. Until then everything shows, which is the safe way to be wrong.
    */
-  const [layers, setLayersState] = useState<LayerId[] | null>(() => loadLayers())
+  const [layers, setLayersState] = useState<LayerId[] | null>(() => loadLayers(profileId))
   const setLayers = useCallback((next: LayerId[]) => {
     setLayersState(next)
-    saveLayers(next)
-  }, [])
+    saveLayers(next, profileId)
+  }, [profileId])
+  // Switching player swaps their layers too; theirs are not yours.
+  useEffect(() => { setLayersState(loadLayers(profileId)) }, [profileId])
   const [handNames, setHandNamesState] = useState(() => loadHandNames())
   const setHandNames = useCallback((next: Record<string, string>) => {
     setHandNamesState(next)
@@ -147,7 +199,7 @@ export default function App() {
    */
   useEffect(() => { void requestPersistentStorage() }, [])
   // Seeded from your real record, so the weakest street comes up most.
-  const drill = useDrill(opponents, tracker.totals, prefs.playerName, tab === 'drill')
+  const drill = useDrill(opponents, tracker.totals, prefs.playerName, tab === 'drill', profileId)
   // Two narrators: an explanation at the table is about one decision, and a
   // review in My Game is about a whole history. Sharing one would have each
   // wipe the other's answer.
@@ -169,8 +221,12 @@ export default function App() {
    */
   useEffect(() => {
     if (layers !== null || !tracker.hydrated) return
-    setLayers(tracker.totals.decisions > 0 ? allLayers() : [...STARTING_LAYERS])
-  }, [layers, setLayers, tracker.hydrated, tracker.totals.decisions])
+    // Somebody with decisions already on the record gets everything, because
+    // that is what they had. Otherwise it follows from what they told the
+    // picker about how much poker they have played.
+    if (tracker.totals.decisions > 0) setLayers(allLayers())
+    else setLayers([...experienceMeta(player?.experience ?? 'casual').layers])
+  }, [layers, setLayers, tracker.hydrated, tracker.totals.decisions, player?.experience])
 
   const activeLayers = layers ?? allLayers()
 
@@ -192,6 +248,23 @@ export default function App() {
     game.setSpeed(prefs.speed)
     coachGame.setSpeed(prefs.speed)
   }, [prefs.speed, game, coachGame])
+
+  /** Sit somebody down. Remembered, unless it is the guest. */
+  const choosePlayer = useCallback((next: LocalProfile) => {
+    setPlayer(next)
+    saveActiveProfile(next.id)
+    setSwitching(false)
+    if (!isGuest(next)) {
+      setProfilesState((prev) => {
+        const seen = prev.some((p) => p.id === next.id)
+        const merged = seen
+          ? prev.map((p) => (p.id === next.id ? { ...next, lastPlayedAt: Date.now() } : p))
+          : [...prev, { ...next, lastPlayedAt: Date.now() }]
+        saveProfiles(merged)
+        return merged
+      })
+    }
+  }, [])
 
   const setBook = useCallback((next: RecordBook) => {
     setBookState(next)
@@ -292,6 +365,20 @@ export default function App() {
     if (result !== 'cancelled') setOfferBackup(false)
   }, [book])
 
+  // Nothing renders until somebody has been chosen. A history has to belong to
+  // a person from its first hand; a "we will sort it out later" mode would
+  // just be the record-contamination problem with extra steps.
+  if (!player) {
+    return (
+      <PlayerPicker
+        profiles={profiles}
+        onPick={choosePlayer}
+        onGuest={() => choosePlayer(guestProfile())}
+        onCreate={choosePlayer}
+      />
+    )
+  }
+
   return (
     <div className="app">
       {update.ready && (
@@ -312,10 +399,37 @@ export default function App() {
             </button>
           ))}
         </div>
+        <button
+          className={`btn small ghost whoami ${guest ? 'guest' : ''}`}
+          onClick={() => setSwitching(true)}
+          aria-label="Change player"
+        >
+          <span
+            className="playerchip-face tiny"
+            style={{ borderColor: player.colour, color: player.colour }}
+          >
+            {initialsFor(player)}
+          </span>
+          <span className="whoami-name">{displayName(player)}</span>
+        </button>
         <button className="btn small ghost" onClick={() => setShowSettings(true)} aria-label="Settings">
           ⚙
         </button>
       </header>
+
+      {guest && (
+        <div className="guestbar">
+          <b>Guest</b>
+          <span>
+            Nothing played now is recorded anywhere — not to you and not to
+            anyone else on this device.
+          </span>
+          <span className="spacer" />
+          <button className="btn small ghost" onClick={() => setSwitching(true)}>
+            Switch player
+          </button>
+        </div>
+      )}
 
       <main className="screen">
         {tab === 'table' && (
@@ -448,6 +562,42 @@ export default function App() {
               coachGame.restart({ ...next, opponents })
             }
           }}
+        />
+      )}
+
+      {switching && (
+        <PlayerPicker
+          title="Who's playing now?"
+          profiles={profiles}
+          onPick={choosePlayer}
+          onGuest={() => choosePlayer(guestProfile())}
+          onCreate={choosePlayer}
+          onEdit={(profile) => { setSwitching(false); setEditingPlayer(profile) }}
+          onClose={() => setSwitching(false)}
+        />
+      )}
+
+      {editingPlayer && (
+        <PlayerForm
+          editing={editingPlayer}
+          onSave={(next) => {
+            setProfiles(profiles.map((p) => (p.id === next.id ? next : p)))
+            if (player.id === next.id) setPlayer(next)
+            setEditingPlayer(null)
+          }}
+          onCancel={() => setEditingPlayer(null)}
+          onDelete={profiles.length > 1 ? () => {
+            const left = profiles.filter((p) => p.id !== editingPlayer.id)
+            setProfiles(left)
+            // Their stored hands go with them. Leaving the records behind
+            // would mean a name reused later inherited a stranger's history.
+            void forgetProfile(editingPlayer.id)
+            setEditingPlayer(null)
+            if (player.id === editingPlayer.id) {
+              setPlayer(null)
+              saveActiveProfile(null)
+            }
+          } : undefined}
         />
       )}
 

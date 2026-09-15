@@ -185,6 +185,69 @@ already formatted.
 Nights can be keyed in by hand for real game nights, or saved straight out of an
 app session via **Cash out**.
 
+## Who's playing
+
+The crew share devices. Somebody hands over their iPad, Dave plays four hands
+to see what it is, and those four hands are now in the owner's record — moving
+their VPIP and their rating exactly as hard as hands they meant. Deleting hands
+afterwards was the cure; this is the prevention.
+
+On first open the app asks who is playing. Names on chips, tap one, play.
+
+**This is not accounts.** No password, no login, no server, nothing leaves the
+device. A profile is a name and a colour that scopes some storage keys, and
+anybody holding the device can pick anybody. That is the correct amount of
+security for a six-person home game, and more would be a thing to maintain
+forever in exchange for nothing.
+
+Each player owns their own hand history, tendencies, rating, practice record,
+coach scorecard and coaching layers. Switching player reloads all of it rather
+than filtering one set in memory, so there is never a moment where one
+person's totals are on screen under another person's name.
+
+### Guest
+
+**Play as guest** is on the first screen rather than buried, because the moment
+it exists for is somebody saying "let me have a go" while you are holding the
+device — and if that is three taps deep the hands land in your record instead.
+
+A guest is never written down: not their hands, not their practice, not their
+layers, not one key. `scopedKey` throws rather than returning one, so a caller
+that forgets to check fails loudly instead of quietly writing a guest's hands
+to disk. A guest is never remembered as the active player either, so the next
+person to open the app is asked who they are rather than dropped into a
+stranger's throwaway session. A visible bar says so for the whole session,
+because the failure mode is somebody playing for an hour believing it counted.
+
+### Experience
+
+The only field that does anything beyond its label. It chooses how much of the
+coach is switched on to start with — **new to poker** gets the price alone,
+**show me everything** gets all four layers — which is a decision somebody new
+should not have to discover in a settings dialog. It is not a difficulty
+setting and never touches the bots, the form says so, and it can be changed at
+any time.
+
+### Upgrading without losing anything
+
+The default profile's records live under the *unscoped* storage keys, exactly
+where they already were. So whoever has been playing since before profiles
+existed keeps every hand, and their profile is seeded from the player name they
+had already set rather than being presented to them as a stranger's empty
+record.
+
+IndexedDB needed a real migration, since hands are rows in one shared store.
+Schema version 2 adds a compound `[profileId, at]` index and stamps every
+existing row with the default profile inside the same `versionchange`
+transaction — so a half-applied upgrade is not a state the database can be left
+in, and a hand that belonged to somebody cannot end up belonging to nobody.
+It is tested by building a version-1 database by hand and opening it.
+
+Deleting a player takes their stored records with them, or a reused id would
+silently inherit a stranger's history. The default profile cannot be deleted
+from the list at all: its records are the device's whole pre-profile history,
+and removing "one player" would erase it.
+
 ## Players
 
 Fourteen regulars ship with the app — Bob, Brett, Ransom, Dave, Don, Hal, Ian,
@@ -960,7 +1023,7 @@ Every push and pull request runs typecheck, the suite and a production build
 (`.github/workflows/ci.yml`). The long skill measurement runs as its own job so
 that minutes of CPU cannot hide a fast failure behind them.
 
-474 tests, all in `npm test`:
+525 tests, all in `npm test`:
 
 - The hand evaluator is checked against the exact frequency distribution of all
   2,598,960 five-card hands (40 straight flushes, 624 quads, and so on).

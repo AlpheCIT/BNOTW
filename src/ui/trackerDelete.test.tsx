@@ -12,6 +12,9 @@ import 'fake-indexeddb/auto'
 import { IDBFactory } from 'fake-indexeddb'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { accumulate, emptyTotals, type HandRecord } from '../engine/playerStats'
+import { DEFAULT_PROFILE_ID } from '../state/profiles'
+
+const ME = DEFAULT_PROFILE_ID
 
 function hand(at: number, mode: 'table' | 'coach', evLost: number): HandRecord {
   return {
@@ -60,7 +63,7 @@ async function trackerWith(hands: HandRecord[]) {
   localStorage.clear()
   vi.resetModules()
   const db = await import('../state/db')
-  await db.replaceAll(hands, hands.reduce(accumulate, emptyTotals()))
+  await db.replaceAll(hands, hands.reduce(accumulate, emptyTotals()), ME)
 
   const { useTracker } = await import('./useTracker')
   const view = renderHook(() => useTracker())
@@ -107,9 +110,9 @@ describe('deleting hands through the tracker', () => {
     })
 
     await waitFor(async () => {
-      expect((await db.readAllHands()).map((h) => h.at)).toEqual([1000, 1100, 2100])
+      expect((await db.readAllHands(ME)).map((h) => h.at)).toEqual([1000, 1100, 2100])
     })
-    expect((await db.readTotals())?.hands).toBe(3)
+    expect((await db.readTotals(ME))?.hands).toBe(3)
   })
 
   it('ignores a hand it is not holding rather than corrupting the totals', async () => {
@@ -140,6 +143,6 @@ describe('deleting hands through the tracker', () => {
 
     expect(view.result.current.recent).toEqual([])
     expect(view.result.current.totals).toEqual(emptyTotals())
-    await waitFor(async () => expect(await db.countHands()).toBe(0))
+    await waitFor(async () => expect(await db.countHands(ME)).toBe(0))
   })
 })

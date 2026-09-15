@@ -12,6 +12,7 @@ import type { ProviderId } from '../engine/providers/types'
 import type { CustomHandNames } from '../engine/handNames'
 import type { CustomVoiceNames } from '../engine/voices'
 import { allLayers, type LayerId } from '../engine/layers'
+import { DEFAULT_PROFILE_ID, isGuestId, scopedKey } from './profiles'
 import { emptyTotals, type HandRecord, type PlayerTotals } from '../engine/playerStats'
 import type { GameNight } from './records'
 import { sortNights } from './records'
@@ -181,10 +182,10 @@ export function emptyCoachStats(): CoachStats {
   return { version: 1, handsPlayed: 0, decisions: 0, agreed: 0, evLost: 0, leaks: {}, sessions: 0 }
 }
 
-export function loadCoachStats(): CoachStats {
-  if (typeof localStorage === 'undefined') return emptyCoachStats()
+export function loadCoachStats(profileId = DEFAULT_PROFILE_ID): CoachStats {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return emptyCoachStats()
   try {
-    const raw = localStorage.getItem(COACH_KEY)
+    const raw = localStorage.getItem(scopedKey(COACH_KEY, profileId))
     if (!raw) return emptyCoachStats()
     return { ...emptyCoachStats(), ...(JSON.parse(raw) as CoachStats) }
   } catch {
@@ -192,10 +193,10 @@ export function loadCoachStats(): CoachStats {
   }
 }
 
-export function saveCoachStats(stats: CoachStats): void {
-  if (typeof localStorage === 'undefined') return
+export function saveCoachStats(stats: CoachStats, profileId = DEFAULT_PROFILE_ID): void {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return
   try {
-    localStorage.setItem(COACH_KEY, JSON.stringify(stats))
+    localStorage.setItem(scopedKey(COACH_KEY, profileId), JSON.stringify(stats))
   } catch {
     // Ignore; coach stats are a convenience, not data worth failing over.
   }
@@ -212,11 +213,11 @@ export interface PlayerLog {
   hands: HandRecord[]
 }
 
-export function loadPlayerLog(): PlayerLog {
+export function loadPlayerLog(profileId = DEFAULT_PROFILE_ID): PlayerLog {
   const empty: PlayerLog = { version: 1, totals: emptyTotals(), hands: [] }
-  if (typeof localStorage === 'undefined') return empty
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return empty
   try {
-    const raw = localStorage.getItem(PLAYER_KEY)
+    const raw = localStorage.getItem(scopedKey(PLAYER_KEY, profileId))
     if (!raw) return empty
     const data = JSON.parse(raw) as PlayerLog
     if (!data?.totals) return empty
@@ -235,8 +236,9 @@ export function loadPlayerLog(): PlayerLog {
  * list, then everything but the totals — which are the only part that cannot
  * be rebuilt by playing more.
  */
-export function savePlayerLog(log: PlayerLog): void {
-  if (typeof localStorage === 'undefined') return
+export function savePlayerLog(log: PlayerLog, profileId = DEFAULT_PROFILE_ID): void {
+  // A guest is never written down. That is the whole point of a guest.
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return
   const attempts: PlayerLog[] = [
     log,
     { ...log, hands: log.hands.map((h) => ({ ...h, replay: undefined })) },
@@ -245,7 +247,7 @@ export function savePlayerLog(log: PlayerLog): void {
   ]
   for (const attempt of attempts) {
     try {
-      localStorage.setItem(PLAYER_KEY, JSON.stringify(attempt))
+      localStorage.setItem(scopedKey(PLAYER_KEY, profileId), JSON.stringify(attempt))
       return
     } catch {
       // Try the next, smaller shape.
@@ -396,10 +398,10 @@ export function emptyDrillStats(): DrillStats {
   return { version: 1, spots: 0, agreed: 0, evLost: 0, streak: 0, bestStreak: 0, byStreet: {} }
 }
 
-export function loadDrillStats(): DrillStats {
-  if (typeof localStorage === 'undefined') return emptyDrillStats()
+export function loadDrillStats(profileId = DEFAULT_PROFILE_ID): DrillStats {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return emptyDrillStats()
   try {
-    const raw = localStorage.getItem(DRILL_KEY)
+    const raw = localStorage.getItem(scopedKey(DRILL_KEY, profileId))
     if (!raw) return emptyDrillStats()
     const data = JSON.parse(raw) as Partial<DrillStats>
     return {
@@ -413,10 +415,10 @@ export function loadDrillStats(): DrillStats {
   }
 }
 
-export function saveDrillStats(stats: DrillStats): void {
-  if (typeof localStorage === 'undefined') return
+export function saveDrillStats(stats: DrillStats, profileId = DEFAULT_PROFILE_ID): void {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return
   try {
-    localStorage.setItem(DRILL_KEY, JSON.stringify(stats))
+    localStorage.setItem(scopedKey(DRILL_KEY, profileId), JSON.stringify(stats))
   } catch {
     // Practice history is the most disposable thing here; never fail over it.
   }
@@ -511,10 +513,10 @@ export function saveVoices(settings: VoiceSettings): void {
  * layers existed: turning everything off for the second group would be taking
  * away numbers they never asked to lose.
  */
-export function loadLayers(): LayerId[] | null {
-  if (typeof localStorage === 'undefined') return null
+export function loadLayers(profileId = DEFAULT_PROFILE_ID): LayerId[] | null {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return null
   try {
-    const raw = localStorage.getItem(LAYERS_KEY)
+    const raw = localStorage.getItem(scopedKey(LAYERS_KEY, profileId))
     if (!raw) return null
     const data = JSON.parse(raw) as unknown
     if (!Array.isArray(data)) return null
@@ -525,20 +527,20 @@ export function loadLayers(): LayerId[] | null {
   }
 }
 
-export function saveLayers(layers: readonly LayerId[]): void {
-  if (typeof localStorage === 'undefined') return
+export function saveLayers(layers: readonly LayerId[], profileId = DEFAULT_PROFILE_ID): void {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return
   try {
-    localStorage.setItem(LAYERS_KEY, JSON.stringify(layers))
+    localStorage.setItem(scopedKey(LAYERS_KEY, profileId), JSON.stringify(layers))
   } catch {
     // A preference. Never worth failing a hand over.
   }
 }
 
 /** Forget the choice, so the next load decides afresh. */
-export function clearLayers(): void {
-  if (typeof localStorage === 'undefined') return
+export function clearLayers(profileId = DEFAULT_PROFILE_ID): void {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return
   try {
-    localStorage.removeItem(LAYERS_KEY)
+    localStorage.removeItem(scopedKey(LAYERS_KEY, profileId))
   } catch {
     // Nothing to do; the stored value is simply kept.
   }

@@ -891,6 +891,10 @@ table.grid tr.winner td { background: rgba(95, 208, 138, 0.08); }
 
 .dialog {
   width: min(460px, 100%);
+  /* A child that will not shrink used to push the whole dialog wider than the
+     screen, and the centred overlay then clipped it on both sides — which is
+     how the new-player form lost the left half of every heading. */
+  min-width: 0;
   max-height: 86vh;
   overflow-y: auto;
   background: var(--panel);
@@ -1641,8 +1645,18 @@ table.grid tr.clickable:hover { background: #1b2b24; }
  * A whole row is the target, not the checkbox. These are read-then-decide
  * choices on a touchscreen, and a 13px box is not something to ask anyone to
  * hit accurately when the cost of missing is deleting the wrong thing.
+ *
+ * Every rule below is written twice, plainly and again under `.field`, and
+ * that is not belt-and-braces. This row is a `<label>`, and `.field label` is
+ * a tiny uppercase caption while `.field input` is a full-width text box — so
+ * dropping one of these rows inside a field turns the prose into one word per
+ * line and the radio into an empty box the width of the dialog. It did
+ * exactly that in the new-player form, and the same trap had already been
+ * papered over once for `.inline-check`. Fixed on the component so it looks
+ * the same wherever it is used, rather than on the one screen that broke.
  */
-.resetrow {
+.resetrow,
+.field .resetrow {
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -1651,19 +1665,41 @@ table.grid tr.clickable:hover { background: #1b2b24; }
   border-radius: var(--radius-sm);
   background: var(--panel-2);
   cursor: pointer;
+  /* Undo the caption styling a surrounding `.field` would impose. */
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
 }
 
 .resetrow:hover { border-color: var(--panel-3); }
-.resetrow.on { border-color: var(--brass); background: var(--panel-3); }
-.resetrow input { margin-top: 2px; flex: none; }
+.resetrow.on, .field .resetrow.on { border-color: var(--brass); background: var(--panel-3); }
+
+.resetrow input,
+.field .resetrow input {
+  margin-top: 2px;
+  flex: none;
+  /* Without this a radio in a field stretches to the full row and shoves the
+     text into a column one word wide. */
+  width: auto;
+}
+
+/* Long prose in a flex row needs this or the row refuses to shrink and the
+   whole dialog overflows its own box. */
+.resetrow > div { min-width: 0; flex: 1 1 auto; }
 .resetrow .sub { margin: 2px 0 0; }
 
-.resetlabel {
+.resetlabel,
+.field .resetlabel {
   display: flex;
   align-items: center;
   gap: 7px;
   font-weight: 700;
   font-size: 13px;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
 }
 
 .tag.money { color: var(--loss); }

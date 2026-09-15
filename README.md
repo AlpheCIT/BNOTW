@@ -1210,7 +1210,7 @@ Every push and pull request runs typecheck, the suite and a production build
 (`.github/workflows/ci.yml`). The long skill measurement runs as its own job so
 that minutes of CPU cannot hide a fast failure behind them.
 
-619 tests, all in `npm test`:
+627 tests, all in `npm test`:
 
 - The hand evaluator is checked against the exact frequency distribution of all
   2,598,960 five-card hands (40 straight flushes, 624 quads, and so on).
@@ -1235,6 +1235,15 @@ that minutes of CPU cannot hide a fast failure behind them.
   after a removal must equal the totals a history that never contained the hand
   would have had — checked at every position in a 60-hand history, and for
   batches removed in either order.
+- Styles that leak are tested by loading the real stylesheet into jsdom and
+  asserting the computed values. jsdom does no layout, so a component test can
+  render a perfectly correct tree that paints as nonsense — which is exactly
+  what shipped in the new-player form, where a choice row that is itself a
+  `<label>` inherited `.field label`'s tiny uppercase caption styling and
+  `.field input`'s full-width box. What jsdom *does* resolve is the cascade,
+  and the bug was a cascade bug. Narrow by design: it cannot check that
+  anything looks right, only that the specific rules which leaked are not
+  leaking. Layout needs a browser, which is issue #36.
 - The React layer is tested with real engine objects rather than mocks
   (`ui/testTable.tsx` builds an actual `Table` behind the game API). That layer
   had one test file and every reported bug; it now has eight. The tests there

@@ -702,6 +702,10 @@ public/            icons and the web app manifest
 
 ## Testing
 
+Every push and pull request runs typecheck, the suite and a production build
+(`.github/workflows/ci.yml`). The long skill measurement runs as its own job so
+that minutes of CPU cannot hide a fast failure behind them.
+
 75 tests, all in `npm test`:
 
 - The hand evaluator is checked against the exact frequency distribution of all

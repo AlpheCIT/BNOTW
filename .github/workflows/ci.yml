@@ -1,0 +1,69 @@
+# Run the tests on every push and every pull request.
+#
+# There are hundreds of them and nothing was running them, which makes them a
+# record of what was true when they were written rather than a guarantee about
+# what is true now.
+#
+# Split into two jobs so a slow measurement cannot hide a fast failure: the
+# quick suite has to go green in a couple of minutes, and the long skill
+# measurement runs alongside it rather than in front of it.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push makes the previous run irrelevant; do not pay for both.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Both tsconfigs: the app and the server-side proxy, which the app build
+      # does not otherwise cover.
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Excludes the skill measurement, which is minutes of solid CPU and runs
+      # in its own job below.
+      - name: Test
+        run: npx vitest run --exclude '**/skill.test.ts'
+
+      # Catches anything that only breaks in a production build — the worker
+      # chunk, the generated service worker, the relative base path.
+      - name: Build
+        run: npm run build
+
+  skill:
+    name: Skill measurement
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Tens of thousands of hands. Worth running because it is the only thing
+      # that would catch the bots quietly getting worse, and duplicate scoring
+      # means the control must cancel to exactly zero — a sensitive canary for
+      # accidental contamination.
+      - name: Measure the skill ladder
+        run: npx vitest run src/engine/skill.test.ts

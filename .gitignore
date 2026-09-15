@@ -5,3 +5,7 @@ dist
 .vite
 coverage
 tsconfig.tsbuildinfo
+test-results/
+playwright-report/
+blob-report/
+.playwright/

@@ -49,6 +49,36 @@ jobs:
       - name: Build
         run: npm run build
 
+  browser:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      # Chromium only. The bugs this suite exists for — a service worker that
+      # served nothing, a form taller than an iPad, a table that dealt no hand
+      # — are not browser-specific, and three engines would treble the minutes
+      # to catch the same things.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Builds and serves the production bundle itself; see playwright.config.
+      - name: Run the browser suite
+        run: npx playwright test
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+
   skill:
     name: Skill measurement
     runs-on: ubuntu-latest

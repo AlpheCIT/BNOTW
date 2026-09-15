@@ -147,6 +147,17 @@ export interface PlayerTotals {
   evLost: number
   evLostSq: number
   leaks: Record<string, number>
+  /**
+   * Cents given up per leak, alongside the counts.
+   *
+   * Kept beside `leaks` rather than folded into it, because how often a
+   * mistake happens and what it costs are different facts and only one of them
+   * can be measured for every mistake. Four of the coach's seven leaks carry no
+   * price at all — see `PRICED_LEAKS` — so a report ranked on cost alone would
+   * quietly rank them last. Added rather than replacing the counts, so a
+   * history recorded before this simply has no costs rather than no leaks.
+   */
+  leakCost: Record<string, number>
   byStreet: Record<string, { decisions: number; agreed: number; evLost: number }>
   /**
    * Per seat. Absent for a position never played, and absent entirely for
@@ -188,6 +199,7 @@ export function emptyTotals(): PlayerTotals {
     evLost: 0,
     evLostSq: 0,
     leaks: {},
+    leakCost: {},
     byStreet: {},
     byPosition: {},
     firstAt: 0,
@@ -200,6 +212,7 @@ export function accumulate(totals: PlayerTotals, hand: HandRecord): PlayerTotals
     ...totals,
     handsByMode: { ...totals.handsByMode },
     leaks: { ...totals.leaks },
+    leakCost: { ...totals.leakCost },
     byStreet: { ...totals.byStreet },
     byPosition: { ...totals.byPosition },
   }
@@ -256,7 +269,10 @@ export function accumulate(totals: PlayerTotals, hand: HandRecord): PlayerTotals
     if (d.agreed) next.agreed += 1
     next.evLost += d.evLost
     next.evLostSq += d.evLost * d.evLost
-    if (d.leak) next.leaks[d.leak] = (next.leaks[d.leak] ?? 0) + 1
+    if (d.leak) {
+      next.leaks[d.leak] = (next.leaks[d.leak] ?? 0) + 1
+      next.leakCost[d.leak] = (next.leakCost[d.leak] ?? 0) + d.evLost
+    }
     const street = next.byStreet[d.street] ?? { decisions: 0, agreed: 0, evLost: 0 }
     next.byStreet[d.street] = {
       decisions: street.decisions + 1,
@@ -300,6 +316,7 @@ export function unaccumulate(totals: PlayerTotals, hand: HandRecord): PlayerTota
     ...totals,
     handsByMode: { ...totals.handsByMode },
     leaks: { ...totals.leaks },
+    leakCost: { ...totals.leakCost },
     byStreet: { ...totals.byStreet },
     byPosition: { ...totals.byPosition },
   }
@@ -357,8 +374,13 @@ export function unaccumulate(totals: PlayerTotals, hand: HandRecord): PlayerTota
       const left = (next.leaks[d.leak] ?? 0) - 1
       // Dropped rather than left at zero: a leak with no instances behind it
       // would still be listed as something you do.
-      if (left > 0) next.leaks[d.leak] = left
-      else delete next.leaks[d.leak]
+      if (left > 0) {
+        next.leaks[d.leak] = left
+        next.leakCost[d.leak] = Math.max(0, (next.leakCost[d.leak] ?? 0) - d.evLost)
+      } else {
+        delete next.leaks[d.leak]
+        delete next.leakCost[d.leak]
+      }
     }
     const street = next.byStreet[d.street]
     if (street) {
@@ -385,6 +407,7 @@ export function unaccumulate(totals: PlayerTotals, hand: HandRecord): PlayerTota
     next.firstAt = 0
     next.lastAt = 0
     next.byPosition = {}
+    next.leakCost = {}
   }
   return next
 }

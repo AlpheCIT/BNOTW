@@ -745,11 +745,54 @@ function family(kind: Action['kind']): 'passive' | 'aggressive' | 'fold' {
   return 'passive'
 }
 
+/**
+ * How far a bet has to miss the coach's size before it is worth mentioning.
+ *
+ * Wide on purpose. The coach's sizing is a heuristic — three times the bet
+ * pre-flop, a fraction of the pot after it — not a solved number, so treating
+ * every deviation as a mistake would be claiming an accuracy it does not have.
+ * Under half or over double is the range where the size is doing something
+ * different from what the line intended, whoever is right about the exact
+ * figure.
+ */
+const SIZING_TOLERANCE = 2
+
 export function reviewDecision(advice: CoachAdvice, action: Action): DecisionReview {
   const want = advice.recommendation
   const agreed = action.kind === want.action
 
   if (agreed) {
+    /*
+     * Right action, wrong size.
+     *
+     * Until this existed, raising to the minimum when the coach wanted three
+     * times the pot scored as a perfect match — the review only ever compared
+     * the *kind* of action, so the most recognisable thing about how somebody
+     * bets was the one thing that went unmarked.
+     *
+     * It stays `agreed`, because the decision was right and only the size was
+     * not, and it carries no cost: what a different size would have won
+     * depends on what the opponents would have done with it, which the engine
+     * does not know. Counted, named, and honestly unpriced.
+     */
+    const wanted = want.amount ?? 0
+    const put = action.amount ?? 0
+    if (wanted > 0 && put > 0 && (put * SIZING_TOLERANCE < wanted || put > wanted * SIZING_TOLERANCE)) {
+      const bigger = put > wanted
+      return {
+        agreed: true,
+        evLost: 0,
+        leak: 'Bet sizing',
+        message:
+          `${want.headline} was right, but ${money(put)} is ${bigger ? 'far more' : 'far less'} ` +
+          `than the ${money(wanted)} the line was built on — ` +
+          (bigger
+            ? 'a bet that big only gets called by hands that beat you.'
+            : 'a bet that small gives the field a price to draw at.'),
+        tone: 'off',
+      }
+    }
+
     return {
       agreed: true,
       evLost: 0,

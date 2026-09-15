@@ -6,6 +6,9 @@ import {
   type Tendency,
 } from '../engine/playerStats'
 import { POSITION_LABEL } from '../engine/position'
+import {
+  SEVERITY_LABEL, gradeHand, leakReport, trend, type LeakRow, type Trend,
+} from '../engine/grading'
 import { pct } from '../engine/coach'
 import type { HandRecord } from '../engine/playerStats'
 import { leakBrief } from '../engine/brief'
@@ -71,6 +74,8 @@ export function StatsView({
   const stats = useMemo(() => tendencies(totals), [totals])
   const notes = useMemo(() => diagnose(totals), [totals])
   const seats = useMemo(() => byPosition(totals), [totals])
+  const leaks = useMemo(() => leakReport(totals), [totals])
+  const movement = useMemo(() => trend(tracker.recent), [tracker.recent])
   const unplaced = useMemo(() => handsWithoutPosition(totals), [totals])
 
   if (totals.hands === 0) {
@@ -296,11 +301,12 @@ export function StatsView({
               </tbody>
             </table>
           </div>
-          {Object.entries(totals.leaks).sort((a, b) => b[1] - a[1]).map(([leak, count]) => (
-            <div className="kv" key={leak}><span>{leak}</span><b>{count}</b></div>
-          ))}
         </div>
       )}
+
+      {leaks.length > 0 && <LeakPanel leaks={leaks} />}
+
+      {movement && <TrendPanel movement={movement} />}
 
       {worst.length > 0 && (
         <div className="panel">
@@ -395,6 +401,10 @@ export function StatsView({
           The last {tracker.recent.length} hands — tap one to replay it. The totals
           above cover everything ever played, not just these. Older hands keep their
           row but drop the replay, so the history stays storable.
+        </p>
+        <p className="sub" style={{ marginTop: -4, fontSize: 11 }}>
+          A grade covers only the decisions in that one hand, so a single letter
+          says very little — it is there to find the hand worth replaying.
         </p>
 
         {picked ? (
@@ -494,6 +504,7 @@ export function StatsView({
                     )}
                   </td>
                   <td className="num">{hand.hole}</td>
+                  <td><HandLetter hand={hand} /></td>
                   <td>{hand.sawFlop ? 'Yes' : '—'}</td>
                   <td>{hand.showdown ? (hand.wonShowdown ? 'Won' : 'Lost') : '—'}</td>
                   <td>{hand.decisions.length}</td>
@@ -555,6 +566,157 @@ export function StatsView({
           }}
           onClose={() => setReplaying(null)}
         />
+      )}
+    </div>
+  )
+}
+
+/**
+ * One hand's grade, or a dash where there was nothing to judge.
+ *
+ * A hand you folded pre-flop for free has no decisions the coach weighed in
+ * on, and an average over none of them would come out a perfect A — which
+ * would make folding everything the highest-scoring way to play.
+ */
+function HandLetter({ hand }: { hand: HandRecord }) {
+  const graded = gradeHand(hand)
+  if (!graded) return <span className="faint">—</span>
+  return (
+    <span
+      className={`grade g-${graded.overall.letter.toLowerCase()}`}
+      title={`${graded.overall.decisions} decision${graded.overall.decisions === 1 ? '' : 's'} in this hand`}
+    >
+      {graded.overall.letter}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * What is actually costing you, worst first.
+ *
+ * The important design decision is the second column. Four of the coach's
+ * leaks cannot be priced at all — what it costs to check a hand you should
+ * have bet depends on what the opponent would have done with the bet, and the
+ * engine does not know. Dropping them would hide three of the most common
+ * mistakes in the app; pricing them at zero would rank them last. So they are
+ * listed, marked, and sorted by how often they happen instead.
+ */
+function LeakPanel({ leaks }: { leaks: LeakRow[] }) {
+  const priced = leaks.filter((l) => l.priced)
+  const total = priced.reduce((sum, l) => sum + l.evLost, 0)
+
+  return (
+    <div className="panel">
+      <h2>Your Biggest Leaks</h2>
+      <p className="sub">
+        {total > 0
+          ? <>Ranked by what they have cost, not by how often they happen. The
+            top of this list is what to fix first.</>
+          : <>Ranked by how often they happen. Nothing here has a measurable
+            price on it yet.</>}
+      </p>
+
+      <div className="leaklist">
+        {leaks.map((row, i) => (
+          <div className="leakrow" key={row.leak}>
+            <span className="leakrank">{i + 1}</span>
+            <div className="leakbody">
+              <div className="leakhead">
+                <b>{row.leak}</b>
+                {row.severity && (
+                  <span className={`tag sev-${row.severity}`}>
+                    {SEVERITY_LABEL[row.severity]}
+                  </span>
+                )}
+              </div>
+              <div className="sub">
+                {row.count} time{row.count === 1 ? '' : 's'}
+                {row.priced
+                  ? ` · about ${money(row.evLost)} given up, ${row.bbLost.toFixed(1)} big blinds`
+                  : ' · cost not measurable'}
+              </div>
+              {row.priced && total > 0 && (
+                <div className="leakbar">
+                  <i style={{ width: `${Math.max(2, row.share * 100)}%` }} />
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {leaks.some((l) => !l.priced) && (
+        <p className="sub" style={{ marginTop: 10, fontSize: 11 }}>
+          &ldquo;Cost not measurable&rdquo; does not mean free. What a missed
+          value bet would have won depends on what the other players would have
+          done with it, and the engine has no way to know — so it counts those
+          rather than inventing a figure to rank them by.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Are you getting better?
+ *
+ * On decision quality, never on money. A hundred hands of results is so noisy
+ * that the confidence band swamps any change a person could actually make in
+ * that time — "up 8 bb/100 this week" would be a coin flip presented as
+ * progress. Accuracy and expected value given up settle far sooner, which is
+ * the same reason the rating is built on them.
+ */
+function TrendPanel({ movement }: { movement: Trend }) {
+  const { recent, previous, accuracyChange, enough } = movement
+  const better = accuracyChange > 0.01
+  const worse = accuracyChange < -0.01
+
+  return (
+    <div className="panel">
+      <h2>Are You Improving?</h2>
+      <p className="sub">
+        Your last {recent.hands} hands against the {previous.hands} before them —
+        on how well you decided, not on what you won.
+      </p>
+
+      <div className="summary-grid">
+        <div className="summary-cell">
+          <b>{pct(previous.accuracy)}</b><span>Then</span>
+        </div>
+        <div className="summary-cell">
+          <b>{pct(recent.accuracy)}</b><span>Now</span>
+        </div>
+        <div className={`summary-cell ${enough ? (better ? 'good' : worse ? 'bad' : '') : ''}`}>
+          <b>
+            {accuracyChange >= 0 ? '+' : ''}
+            {(accuracyChange * 100).toFixed(1)}
+          </b>
+          <span>Points</span>
+        </div>
+        <div className="summary-cell">
+          <b className={movement.costChange <= 0 ? '' : 'neg'}>
+            {money(Math.round(recent.evLostPer100))}
+          </b>
+          <span>EV lost per 100</span>
+        </div>
+      </div>
+
+      {enough ? (
+        <p className="sub" style={{ margin: '8px 0 0' }}>
+          {better
+            ? 'Matching the coach more often than you were. That is the number worth watching.'
+            : worse
+              ? 'Matching the coach less often than you were. Worth a look at the leaks above.'
+              : 'Holding steady.'}
+        </p>
+      ) : (
+        <p className="sub" style={{ margin: '8px 0 0' }}>
+          Only {Math.min(recent.decisions, previous.decisions)} decisions in the
+          smaller window — not enough yet for the difference to mean anything.
+          Shown so you can watch it fill up.
+        </p>
       )}
     </div>
   )

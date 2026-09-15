@@ -680,6 +680,76 @@ The point of this is less the deleting than the editing. The personas and the
 coaches are meant to be changed; without a way back to the shipped numbers, the
 safe thing to do with a persona you are curious about is nothing.
 
+### Your biggest leaks
+
+What is actually costing you, worst first — with one column that took more
+thought than the rest of the panel.
+
+**Four of the coach's seven leaks cannot be priced at all.** What it costs to
+check a hand you should have bet depends on what your opponent would have done
+with the bet, and the engine has no way to know. Only the two price mistakes —
+calling too light, folding a good price — have an EV figure behind them,
+because those are the one case where the engine already knows the value of the
+call it is comparing against.
+
+That leaves two bad options and one good one. Dropping the unpriced leaks would
+hide three of the most common mistakes in the app. Pricing them at zero would
+rank them below everything. So they are listed, marked **cost not measurable**,
+and sorted by frequency underneath the priced ones — and the panel says in as
+many words that not measurable is not the same as free.
+
+Which leaks carry a price is not a list typed out by hand. A test drives
+`reviewDecision` through every combination it accepts, collects what it
+actually produces, and fails if `PRICED_LEAKS` and reality have drifted apart.
+
+Severity bands a slip by what one instance typically cost: under 1 bb minor,
+1–4 moderate, past 4 major. Judgement, not measurement — they exist so an
+expensive habit sorts above a frequent one.
+
+### Grades
+
+Each hand in the list carries a letter, from the decisions in that hand and
+nothing else. Matching the coach scores full marks. Departing from it scores at
+most a half **even when nothing measurable was given up**, because a mistake
+nobody can price is still a mistake and scoring it full marks would make three
+of the most common leaks invisible to every grade in the app. A priced mistake
+scores down from there, bottoming out at 6 bb so one catastrophe cannot drag a
+whole session below failing.
+
+A hand with no decisions in it gets a dash, not an A. An average over an empty
+list is a perfect score, which would make folding every hand the best-graded
+way to play.
+
+A single letter on a single hand says very little, and the panel says so — it
+is there to find the hand worth replaying.
+
+### Are you improving?
+
+Your last 100 hands against the 100 before them, **on decision quality rather
+than on money**. A hundred hands of results is so noisy that the confidence
+band swamps any change a person could actually make in that time, so "up 8
+bb/100 this week" would be a coin flip presented as progress. Accuracy and
+expected value given up settle far sooner, which is the same reason the rating
+is built on them.
+
+It does not appear at all until there are two full windows, and it says when
+the windows hold too few decisions for the difference to mean anything rather
+than reporting a direction it cannot support.
+
+### Bet sizing
+
+Raising to the minimum when the coach wanted three times the pot used to score
+as a perfect match: the review only ever compared the *kind* of action, so the
+most recognisable thing about how somebody bets was the one thing that went
+unmarked.
+
+It is now its own leak. Two deliberate choices about it. The decision still
+counts as **agreed**, because the action was right and only the size was not.
+And it carries no cost, because what a different size would have won depends on
+what the opponents would have done with it. The tolerance is wide — under half
+or over double — since the coach's sizing is a heuristic rather than a solved
+number, and flagging every deviation would claim an accuracy it does not have.
+
 ### Rating: how well you do it
 
 Here is the thing that makes a poker rating hard, and it is worth being blunt
@@ -1095,7 +1165,7 @@ Every push and pull request runs typecheck, the suite and a production build
 (`.github/workflows/ci.yml`). The long skill measurement runs as its own job so
 that minutes of CPU cannot hide a fast failure behind them.
 
-553 tests, all in `npm test`:
+590 tests, all in `npm test`:
 
 - The hand evaluator is checked against the exact frequency distribution of all
   2,598,960 five-card hands (40 straight flushes, 624 quads, and so on).

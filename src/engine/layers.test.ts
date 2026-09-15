@@ -60,6 +60,10 @@ describe('the leak names match the ones the coach records', () => {
       for (const did of actions) {
         for (const callEV of [-500, 0, 500]) {
           for (const boardLen of [0, 3]) {
+            // Sizes as well as actions: a bet far off the coach's line is its
+            // own leak, and a driver that never varies the amount would report
+            // that leak as one nothing can produce.
+            for (const [wantAmount, didAmount] of [[0, 0], [600, 600], [600, 100], [600, 5000]]) {
             const advice = {
               board: Array(boardLen).fill({ rank: 2, suit: 's' }),
               equity: { equity: 0.4, exact: true, runouts: 1, wins: 0, ties: 0 },
@@ -71,10 +75,14 @@ describe('the leak names match the ones the coach records', () => {
               pot: 1000,
               toCall: 200,
               starting: { label: 'A-K', chen: 10, grade: 'Strong', note: '' },
-              recommendation: { action: want, headline: 'x', reasons: [], confidence: 'clear' },
+              recommendation: {
+                action: want, headline: 'x', reasons: [], confidence: 'clear',
+                amount: wantAmount || undefined,
+              },
             } as unknown as CoachAdvice
-            const review = reviewDecision(advice, { kind: did })
+            const review = reviewDecision(advice, { kind: did, amount: didAmount || undefined })
             if (review.leak) found.add(review.leak)
+            }
           }
         }
       }

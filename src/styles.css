@@ -2026,3 +2026,71 @@ table.grid tr.chosen:hover { background: #4a2724; }
   text-transform: uppercase;
   font-size: 10px;
 }
+
+/* --- grades and leaks ----------------------------------------------------- */
+
+.grade {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid currentColor;
+  font-weight: 800;
+  font-size: 11px;
+}
+
+.grade.g-a { color: var(--win); }
+.grade.g-b { color: #9ed8a8; }
+.grade.g-c { color: var(--brass); }
+.grade.g-d { color: var(--bomb); }
+.grade.g-f { color: var(--loss); }
+
+.leaklist { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+
+.leakrow { display: flex; gap: 10px; align-items: flex-start; }
+
+.leakrank {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-3);
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.leakbody { flex: 1 1 auto; min-width: 0; }
+
+.leakhead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.leakbody .sub { margin: 2px 0 0; }
+
+/* Share of everything measurably given up. Only drawn for priced leaks, so an
+   unpriced one is never shown as a bar of length zero. */
+.leakbar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.leakbar i { display: block; height: 100%; background: var(--loss); }
+
+.tag.sev-minor { color: var(--ink-faint); }
+.tag.sev-moderate { color: var(--bomb); }
+.tag.sev-major { color: var(--loss); }
+
+.summary-cell.good b { color: var(--win); }
+.summary-cell.bad b { color: var(--loss); }

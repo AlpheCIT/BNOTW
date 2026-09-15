@@ -96,7 +96,7 @@ export function layer(id: LayerId): Layer {
 export const LAYER_LEAKS: Record<LayerId, string[]> = {
   price: ['Called too light', 'Folded a good price'],
   hand: ['Loose call', 'Folded a playable hand'],
-  player: ['Missed value', 'Too aggressive', 'Off the line'],
+  player: ['Missed value', 'Too aggressive', 'Off the line', 'Bet sizing'],
   table: [],
 }
 

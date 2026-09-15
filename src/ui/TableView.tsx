@@ -7,6 +7,7 @@ import { cardCode } from '../engine/cards'
 import { shortHand } from '../engine/handEval'
 import { pct, showdownEquity, type EquityResult } from '../engine/coach'
 import { bestHand, legalActions, livePlayers, potTotal } from '../engine/hand'
+import { handName, type CustomHandNames } from '../engine/handNames'
 import { guardFor, type Guard, type GuardOptions } from '../engine/misclick'
 import { useAdvice } from './useAdvice'
 import type { Action, HandPlayer, HandState, Seat as SeatModel } from '../engine/types'
@@ -52,6 +53,7 @@ function betSpot(index: number, total: number) {
 
 export function TableView({
   game, onCashOut, coach, tracker, mode = 'table', narrator, guardOptions = {},
+  handNames = {},
 }: {
   game: GameApi
   onCashOut: () => void
@@ -64,6 +66,8 @@ export function TableView({
   narrator?: NarratorApi
   /** When to ask twice before an action you cannot take back. */
   guardOptions?: GuardOptions
+  /** Nicknames this table has added or changed. */
+  handNames?: CustomHandNames
 }) {
   const { table, version } = game
   const hand = table.hand
@@ -255,6 +259,7 @@ export function TableView({
               isWinner={game.winners.includes(tableSeat.seat)}
               xray={Boolean(coach?.xray)}
               odds={xrayOdds?.get(tableSeat.seat) ?? null}
+              handNames={handNames}
             />
           ))}
         </div>
@@ -290,7 +295,7 @@ function bombCountdown(table: GameApi['table']): string {
 // ---------------------------------------------------------------------------
 
 function SeatPlate({
-  seat, hand, total, isWinner, xray, odds,
+  seat, hand, total, isWinner, xray, odds, handNames = {},
 }: {
   seat: SeatModel
   hand: HandState | null
@@ -298,6 +303,7 @@ function SeatPlate({
   isWinner: boolean
   xray: boolean
   odds: EquityResult | null
+  handNames?: CustomHandNames
 }) {
   const player: HandPlayer | undefined = hand?.players[seat.seat]
   const pos = ellipse(seat.seat, total, 43, 39)
@@ -316,8 +322,15 @@ function SeatPlate({
     !player ? 'out' : '',
   ].filter(Boolean).join(' ')
 
-  const handLabel = player && showFace && hand && hand.board.length >= 3 && !player.folded
-    ? shortHand(bestHand(hand, seat.seat)!)
+  /*
+   * After the flop, what the hand actually is. Before it, what the table calls
+   * it — which is the only thing there is to say about two cards, and the
+   * thing people say out loud.
+   */
+  const handLabel = player && showFace && hand && !player.folded
+    ? (hand.board.length >= 3
+      ? shortHand(bestHand(hand, seat.seat)!)
+      : handName(player.hole, handNames))
     : null
 
   return (

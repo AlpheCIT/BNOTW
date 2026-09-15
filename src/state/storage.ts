@@ -9,6 +9,7 @@ import { DEFAULT_TENDENCIES, defaultRoster, type Persona } from '../engine/perso
 import type { TableSnapshot } from '../engine/table'
 import type { PlayMode } from '../engine/playerStats'
 import type { ProviderId } from '../engine/providers/types'
+import type { CustomHandNames } from '../engine/handNames'
 import { emptyTotals, type HandRecord, type PlayerTotals } from '../engine/playerStats'
 import type { GameNight } from './records'
 import { sortNights } from './records'
@@ -22,6 +23,7 @@ const COACH_CREDS_KEY = 'bnotw.coachcreds.v1'
 const TABLE_KEY = 'bnotw.table.v1'
 const COACH_TABLE_KEY = 'bnotw.table.coach.v1'
 const DRILL_KEY = 'bnotw.drill.v1'
+const HAND_NAMES_KEY = 'bnotw.handnames.v1'
 const COACH_KEY = 'bnotw.coach.v1'
 
 export interface RecordBook {
@@ -413,5 +415,42 @@ export function saveDrillStats(stats: DrillStats): void {
     localStorage.setItem(DRILL_KEY, JSON.stringify(stats))
   } catch {
     // Practice history is the most disposable thing here; never fail over it.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// What this table calls its hands
+// ---------------------------------------------------------------------------
+
+/**
+ * Names this table has added, renamed or cleared.
+ *
+ * Only the differences from the shipped list are stored, so a later release
+ * that adds a nickname brings it along rather than being shadowed by a frozen
+ * copy of the old list.
+ */
+export function loadHandNames(): CustomHandNames {
+  if (typeof localStorage === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(HAND_NAMES_KEY)
+    if (!raw) return {}
+    const data = JSON.parse(raw) as CustomHandNames
+    if (!data || typeof data !== 'object') return {}
+    const out: CustomHandNames = {}
+    for (const [key, name] of Object.entries(data)) {
+      if (typeof name === 'string') out[key] = name
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+export function saveHandNames(names: CustomHandNames): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(HAND_NAMES_KEY, JSON.stringify(names))
+  } catch {
+    // Flavour, not money. Never worth failing over.
   }
 }

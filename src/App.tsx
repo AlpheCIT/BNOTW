@@ -7,7 +7,8 @@ import { PROVIDERS, providerInfo } from './engine/providers'
 import type { BombPotTrigger, TableSettings } from './engine/table'
 import { blankNight, makeId, type GameNight, type NightPlayer } from './state/records'
 import {
-  loadBook, loadCoachCreds, loadRoster, loadSettings, saveBook, saveCoachCreds,
+  loadBook, loadCoachCreds, loadHandNames, loadRoster, loadSettings, saveBook, saveCoachCreds,
+  saveHandNames,
   saveRoster, saveSettings,
   type CoachCreds, type RecordBook, type RosterState,
 } from './state/storage'
@@ -106,6 +107,11 @@ export default function App() {
   // Offered after a night is recorded, which is the one moment there is
   // something new worth keeping and nobody is mid-hand.
   const [offerBackup, setOfferBackup] = useState(false)
+  const [handNames, setHandNamesState] = useState(() => loadHandNames())
+  const setHandNames = useCallback((next: Record<string, string>) => {
+    setHandNamesState(next)
+    saveHandNames(next)
+  }, [])
 
   /**
    * Ask the browser not to evict this origin under storage pressure.
@@ -234,6 +240,7 @@ export default function App() {
             tracker={tracker}
             mode="table"
             guardOptions={guardOptions}
+            handNames={handNames}
           />
         )}
         {tab === 'coach' && (
@@ -264,6 +271,7 @@ export default function App() {
               mode="coach"
               narrator={tableNarrator}
               guardOptions={guardOptions}
+              handNames={handNames}
             />
           </>
         )}
@@ -280,7 +288,7 @@ export default function App() {
             onOpenNight={setOpenNightId}
           />
         )}
-        {tab === 'rules' && <RulesView />}
+        {tab === 'rules' && <RulesView handNames={handNames} onHandNames={setHandNames} />}
       </main>
 
       {offerBackup && (

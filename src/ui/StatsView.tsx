@@ -11,6 +11,7 @@ import {
 } from '../engine/grading'
 import { pct } from '../engine/coach'
 import type { HandRecord } from '../engine/playerStats'
+import type { Seat } from '../engine/types'
 import { leakBrief } from '../engine/brief'
 import { ReplayView } from './ReplayView'
 import type { NarratorApi } from './useNarrator'
@@ -20,13 +21,15 @@ import type { TrackerApi } from './useTracker'
 const SHOWN = 40
 
 export function StatsView({
-  tracker, narrator, onStartFresh,
+  tracker, narrator, onStartFresh, tableSeats,
 }: {
   tracker: TrackerApi
   /** Optional review service; absent when none is configured. */
   narrator?: NarratorApi
   /** Opens the wider reset, which reaches things this view does not own. */
   onStartFresh?: () => void
+  /** The live seats, so a replay can offer the decision explorer. */
+  tableSeats?: readonly Seat[]
 }) {
   const { totals } = tracker
   const [confirmReset, setConfirmReset] = useState(false)
@@ -559,6 +562,7 @@ export function StatsView({
         <ReplayView
           replay={replaying.replay}
           decisions={replaying.decisions}
+          seats={tableSeats}
           note={replaying.note ?? ''}
           onNote={(note) => {
             tracker.setNote(replaying.at, note)

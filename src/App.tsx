@@ -507,6 +507,7 @@ export default function App() {
             tracker={tracker}
             narrator={reviewNarrator}
             onStartFresh={() => setShowReset(true)}
+            tableSeats={game.table.seats}
           />
         )}
         {tab === 'players' && (

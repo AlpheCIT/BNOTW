@@ -7,6 +7,10 @@ import {
 import { BOMB_POT_GAMES } from '../engine/bnotw'
 import type { DecisionRecord } from '../engine/playerStats'
 import { CardRow } from './pieces'
+import { ExplorePanel } from './ExplorePanel'
+import { useExplore } from './useExplore'
+import { alternativesFor } from '../engine/explore'
+import type { Seat } from '../engine/types'
 
 /**
  * Step through a finished hand.
@@ -17,7 +21,7 @@ import { CardRow } from './pieces'
  * point of a replay.
  */
 export function ReplayView({
-  replay, decisions, onClose, note = '', onNote,
+  replay, decisions, onClose, note = '', onNote, seats,
 }: {
   replay: HandReplay
   decisions: DecisionRecord[]
@@ -25,6 +29,15 @@ export function ReplayView({
   /** What you wrote about this hand, if anything. */
   note?: string
   onNote?: (note: string) => void
+  /**
+   * The live seats, which carry the personas.
+   *
+   * Only needed for the decision explorer: a replay stores names and stacks
+   * but not how anybody plays, and re-simulating against default bots would
+   * answer a question about a table that was not there. Absent, the explorer
+   * is simply not offered.
+   */
+  seats?: readonly Seat[]
 }) {
   const frames = useMemo(() => replayFrames(replay), [replay])
   const [index, setIndex] = useState(0)
@@ -46,11 +59,23 @@ export function ReplayView({
     return () => window.removeEventListener('keydown', onKey)
   }, [frames.length, onClose])
 
+  const exploring = useExplore()
   const hero = frame.seats.find((s) => s.isHero)
   const heroDecisions = decisions.filter((d) => d.street === frame.street)
   const decisionHere = frame.entry && frame.entry.seat === replay.heroSeat
     ? heroDecisions.find((d) => d.action === frame.entry!.kind)
     : undefined
+
+  /** Which journal entry this frame is showing, for the explorer. */
+  const journalIndex = frame.entry ? replay.journal.indexOf(frame.entry) : -1
+  const canExplore = Boolean(seats)
+    && journalIndex >= 0
+    && frame.entry?.seat === replay.heroSeat
+    && !['blind', 'straddle', 'ante', 'discard'].includes(frame.entry?.kind ?? '')
+
+  // Stepping to another decision drops the last answer rather than leaving it
+  // sitting under a different spot, which is the stale-feedback bug again.
+  useEffect(() => { exploring.clear() }, [journalIndex])
 
   return (
     <div className="overlay" onClick={onClose}>
@@ -136,6 +161,29 @@ export function ReplayView({
               : `You ${decisionHere.action}ed here. The coach would have ${verb(decisionHere.recommended)}` +
                 `${decisionHere.evLost > 0 ? `, giving up about ${money(decisionHere.evLost)}` : ''}.`}
           </div>
+        )}
+
+        {canExplore && !exploring.result && !exploring.running && (
+          <div className="row" style={{ margin: '0 0 8px' }}>
+            <button
+              className="btn small"
+              onClick={() => exploring.run(
+                replay, seats as Seat[], journalIndex,
+                alternativesFor(replay, journalIndex),
+              )}
+            >
+              What if I had played it differently?
+            </button>
+          </div>
+        )}
+
+        {(exploring.running || exploring.result || exploring.failed) && (
+          <ExplorePanel
+            exploration={exploring.result}
+            running={exploring.running}
+            failed={exploring.failed}
+            onClose={exploring.clear}
+          />
         )}
 
         {equity && (

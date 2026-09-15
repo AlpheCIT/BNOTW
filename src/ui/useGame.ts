@@ -8,6 +8,7 @@ import { mulberry32 } from '../engine/cards'
 import { decideAction, decideDiscard } from '../engine/ai'
 import { Table, type TableSettings } from '../engine/table'
 import { loadTableSnapshot, saveTableSnapshot } from '../state/storage'
+import { DEFAULT_PROFILE_ID } from '../state/profiles'
 import type { PlayMode } from '../engine/playerStats'
 import type { Action } from '../engine/types'
 
@@ -56,13 +57,32 @@ export function useGame(
   initial: Partial<TableSettings>,
   active = true,
   persist: PlayMode | false = false,
+  profileId: string = DEFAULT_PROFILE_ID,
 ): GameApi {
   const tableRef = useRef<Table | null>(null)
   if (!tableRef.current) {
     const table = new Table(initial)
-    if (persist) table.restore(loadTableSnapshot(persist), persist)
+    if (persist) table.restore(loadTableSnapshot(persist, profileId), persist)
     tableRef.current = table
   }
+
+  /*
+   * Switching player swaps the table underneath.
+   *
+   * Without this, handing the iPad to Dave would sit him down behind your
+   * chips — and cashing out would then record your night under his name.
+   */
+  const lastProfile = useRef(profileId)
+  useEffect(() => {
+    if (lastProfile.current === profileId) return
+    lastProfile.current = profileId
+    const table = tableRef.current!
+    table.reset(initial)
+    // `reset` and `restore` both touch the table, which is what React is
+    // subscribed to, so there is nothing to publish by hand here.
+    if (persist) table.restore(loadTableSnapshot(persist, profileId), persist)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId, persist])
   const table = tableRef.current
 
   /**
@@ -71,8 +91,8 @@ export function useGame(
    * one would record stacks that the hand is about to change.
    */
   const remember = useCallback(() => {
-    if (persist) saveTableSnapshot(persist, table.snapshot(persist))
-  }, [persist, table])
+    if (persist) saveTableSnapshot(persist, table.snapshot(persist), profileId)
+  }, [persist, table, profileId])
 
   const version = useSyncExternalStore(table.subscribe, table.getVersion, table.getVersion)
   const [speed, setSpeed] = useState<Speed>('normal')
@@ -101,10 +121,16 @@ export function useGame(
     table.startHand()
   }, [table, remember])
 
-  // Deal the first hand, but not until this table is the one on screen.
+  /*
+   * Deal the first hand, but not until this table is the one on screen.
+   *
+   * Keyed on the profile as well, because switching player resets the table
+   * and leaves it with no hand — and without this, the first version of that
+   * change left whoever sat down next staring at "Hand #0" with no buttons.
+   */
   useEffect(() => {
     if (active && !table.hand) table.startHand()
-  }, [table, active])
+  }, [table, active, profileId])
 
   // The main loop: whatever the engine is waiting on, either a bot answers it
   // or the table deals. Human decisions fall through and the loop idles.

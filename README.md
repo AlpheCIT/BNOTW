@@ -185,6 +185,69 @@ already formatted.
 Nights can be keyed in by hand for real game nights, or saved straight out of an
 app session via **Cash out**.
 
+## Who's playing
+
+The crew share devices. Somebody hands over their iPad, Dave plays four hands
+to see what it is, and those four hands are now in the owner's record — moving
+their VPIP and their rating exactly as hard as hands they meant. Deleting hands
+afterwards was the cure; this is the prevention.
+
+On first open the app asks who is playing. Names on chips, tap one, play.
+
+**This is not accounts.** No password, no login, no server, nothing leaves the
+device. A profile is a name and a colour that scopes some storage keys, and
+anybody holding the device can pick anybody. That is the correct amount of
+security for a six-person home game, and more would be a thing to maintain
+forever in exchange for nothing.
+
+Each player owns their own hand history, tendencies, rating, practice record,
+coach scorecard and coaching layers. Switching player reloads all of it rather
+than filtering one set in memory, so there is never a moment where one
+person's totals are on screen under another person's name.
+
+### Guest
+
+**Play as guest** is on the first screen rather than buried, because the moment
+it exists for is somebody saying "let me have a go" while you are holding the
+device — and if that is three taps deep the hands land in your record instead.
+
+A guest is never written down: not their hands, not their practice, not their
+layers, not one key. `scopedKey` throws rather than returning one, so a caller
+that forgets to check fails loudly instead of quietly writing a guest's hands
+to disk. A guest is never remembered as the active player either, so the next
+person to open the app is asked who they are rather than dropped into a
+stranger's throwaway session. A visible bar says so for the whole session,
+because the failure mode is somebody playing for an hour believing it counted.
+
+### Experience
+
+The only field that does anything beyond its label. It chooses how much of the
+coach is switched on to start with — **new to poker** gets the price alone,
+**show me everything** gets all four layers — which is a decision somebody new
+should not have to discover in a settings dialog. It is not a difficulty
+setting and never touches the bots, the form says so, and it can be changed at
+any time.
+
+### Upgrading without losing anything
+
+The default profile's records live under the *unscoped* storage keys, exactly
+where they already were. So whoever has been playing since before profiles
+existed keeps every hand, and their profile is seeded from the player name they
+had already set rather than being presented to them as a stranger's empty
+record.
+
+IndexedDB needed a real migration, since hands are rows in one shared store.
+Schema version 2 adds a compound `[profileId, at]` index and stamps every
+existing row with the default profile inside the same `versionchange`
+transaction — so a half-applied upgrade is not a state the database can be left
+in, and a hand that belonged to somebody cannot end up belonging to nobody.
+It is tested by building a version-1 database by hand and opening it.
+
+Deleting a player takes their stored records with them, or a reused id would
+silently inherit a stranger's history. The default profile cannot be deleted
+from the list at all: its records are the device's whole pre-profile history,
+and removing "one player" would erase it.
+
 ## Players
 
 Fourteen regulars ship with the app — Bob, Brett, Ransom, Dave, Don, Hal, Ian,
@@ -261,7 +324,9 @@ A second table that never touches your records. On every decision it shows:
 - **Win probability** against the players still in the hand — the number a
   broadcast puts on screen. Every runout is counted exactly when that is cheap
   (990 on the flop, 44 on the turn) and sampled only when it is not.
-- **Chen score** and a grade for your starting hand pre-flop.
+- **Chen score** and a grade for your starting hand pre-flop, ranked below the
+  equity rather than beside it — see [Chen, ranked rather than
+  pinned](#chen-ranked-rather-than-pinned).
 - **Your outs**, grouped by what they make, each with its own odds of arriving
   by the river.
 - **The price** — pot odds, the equity you need to break even, and the expected
@@ -269,12 +334,179 @@ A second table that never touches your records. On every decision it shows:
 - **A recommendation**, with the reasoning that produced it. The point is not to
   be told what to do; it is to see the arithmetic you should have been doing.
 
+How much of that is on screen is up to you — see [The
+layers](#the-layers). Everything above is what you get with all four on; a new
+player starts with one question at a time.
+
 Then it reviews what you did, and keeps a running scorecard: how often you
 matched the recommendation, how much expected value the gap cost, and which
 mistakes you make most.
 
 **X-ray** turns every hand face up with live win percentages, the way a
 televised hand looks. It is a study tool, so it only exists in coach mode.
+
+### The layers
+
+Coach mode used to show everything it knew, every hand, at equal weight. For
+someone learning that is not a lesson, it is a dashboard — and it is the direct
+cause of the Chen complaint, because a number that is not *wrong* can still be
+a problem when it sits in a tile the same size as things that matter far more
+right now.
+
+So the panels are layers to turn on, not levels to beat. Each adds rather than
+replaces, they go on in any order, and anyone who wants the whole dashboard on
+their first hand just turns them all on.
+
+| Layer | The question | What it adds |
+|---|---|---|
+| **The price** | Is this call worth what it costs? | The pot, what the call costs, the share you need to break even |
+| **The hand** | Do I actually have the hand for it? | Equity, what you have made, your outs, and Chen before the flop |
+| **The player** | Who am I up against? | Position, the range each opponent is credited with, and how they have actually been playing |
+| **The table** | What is different about this game? | How the house rules change the maths — bomb pots, straddles, the Dexter |
+
+With only **The price** on, the equity bar shows the mark you have to clear and
+not how close you are to it. That is the layer's whole question: work out what
+you need, then go and decide whether you have it.
+
+**The layers gate the numbers, never the advice.** The recommendation and the
+reasoning behind it show at every layer, because advice you cannot check is
+worse than a number you have not been introduced to.
+
+#### When the next layer is offered
+
+Each layer owns the mistakes it is about, and the tracker already counts them
+by name: calling a price you should have passed on is a price mistake; playing
+a hand that was priced fine but plays badly is a hand mistake; missing value on
+the river is a line mistake. When a layer's own mistakes have gone quiet over a
+decent sample, the next one is offered once, with the evidence in the prompt —
+*"The price looks settled — 0 slips in 200 decisions."*
+
+**Those thresholds are judgement, not measurement.** Sixty decisions and an 8%
+slip rate were not fitted to anything; they are a reasonable-looking sample and
+a reasonable-looking error rate, chosen because they had to be something. They
+decide when a suggestion appears and nothing else, so being wrong about them
+costs a prompt at the wrong moment.
+
+**The table layer has no gate at all, and says so.** Reading a room happens
+between the hands, in the part of poker this app cannot see. It teaches what
+follows from the house rules — a bomb pot really does mean nobody chose their
+cards, a straddle really does change the price — and then states plainly that
+tells and timing are the one thing it cannot teach you, because it has nobody
+to show you. Filling that gap with received wisdom it has no way to check would
+be worse than leaving it open.
+
+#### Chen, ranked rather than pinned
+
+Chen is kept, because it is a genuinely useful tool for the question you have
+most often: is this hand worth entering with at all. What changed is its
+standing. It was in a grid cell the same size as equity, which read as an equal
+authority on a decision it knows far less about — it never sees the board, the
+position, the bet size or who is in the pot.
+
+Now it is one line under the numbers that outrank it, leading with the grade,
+with an explanation a tap away that says what it is good for and what it does
+not know. Where Chen and the equity disagree, the panel says to believe the
+equity. The pre-flop reasoning changed too: *"A-K is a strong starting hand
+(Chen 10)"* rather than *"A-K scores 10 on the Chen scale"* — identical
+information, and no longer a piece of unintroduced jargon at the top of every
+pre-flop argument.
+
+### Had you stayed
+
+You fold, the hand carries on, and as far as you are concerned it stops
+existing. "Would I have hit that?" is one of the most natural questions a
+learning player asks and nothing answered it.
+
+Once a hand you folded finishes, coach mode shows what you would have held at
+the river, whether it was the best hand out there, and what the pot was worth.
+Coach mode only, for the same reason X-ray is: at a real table you do not get
+to see this.
+
+The danger here is not that it is wrong, it is that it is persuasive — *"you
+would have made a flush"* is the most memorable thing on the screen and the
+least useful. Showing near-misses is how you train results-oriented thinking,
+which is precisely the habit the rating was built to avoid. So:
+
+- It reports what your hand would have **been**, never what you would have
+  **won**. The panel says "the best hand at the river", which is a different
+  claim and the difference is the whole lesson.
+- **The equity you had when you folded is printed above the runout that came.**
+  The other order reads as "you were robbed".
+- The caveat is body text, not a footnote, and it names the second reason this
+  is weak evidence as well as the first: with you still in the hand, the
+  betting would not have gone the same way, so some of those hands would never
+  have reached the river at all. A fold that would have won is usually still
+  the right fold.
+- A hit is not styled as a success. The tint marks which case it is without
+  scoring it.
+
+When the hand ended before the river there is nothing to show, and it says so
+rather than dealing a runout that never came — that would be answering about a
+different hand. Same when everyone else folded too and there was nobody left to
+have beaten.
+
+### The last hand
+
+A **Last hand** control on the table itself, in both modes, opens the replay of
+the hand that just happened. Replay already existed but lived in My Game, so
+the moment you most want to look at a hand — straight after playing it — was
+the moment it was hardest to reach. Each mode shows its own last hand: a
+coach-mode hand appearing at the table would be a hand that never happened
+there.
+
+### Coaches who disagree
+
+One voice delivering one verdict teaches you what to do. Two voices arguing
+over the same spot teach you *why*, because good players genuinely disagree
+about marginal hands far more than a single confident recommendation suggests.
+Pick a **Coach** and optionally a **2nd**, and where they differ the second
+read is called out rather than buried.
+
+Five voices ship, and between them they cover the corners rather than a line
+through the middle — a loose small-ball read, a loose raise-or-fold read, a
+selective-aggressive one, a patient tight one, and the plain numbers:
+
+| | folds more | plays more |
+|---|---|---|
+| **bets small** | The House | Dominic North |
+| **bets big** | Walter Boyd (tight) | Philippa Ingram (selective), Sonny Bracken (any two cards) |
+
+How often they actually disagree, measured over 200 pre-flop spots six-handed
+(so these are entry decisions, where `entryShift` does most of its work):
+
+| second opinion | differs from The House |
+|---|---|
+| Sonny Bracken | 43% |
+| Dominic North | 36% |
+| Philippa Ingram | 8% |
+| Walter Boyd | 7% |
+
+Pick a second opinion that is not The House and the spread is wider still:
+Walter Boyd against Sonny Bracken differ on 48% of spots, Dominic North against
+Walter Boyd on 42%, while Dominic North against Sonny Bracken — both very loose
+— differ on only 8%. Across all five, at least one disagrees in 48% of spots.
+
+Two things worth taking from that. The useful pairing is one from each corner;
+two voices from the same corner are one voice answering twice. And a tight or
+selective voice barely disagrees with the plain numbers *before the flop*,
+because the house bar is already fairly tight — their disagreement is mostly
+about how hard to bet once a hand is underway, which these figures do not
+measure.
+
+Each voice shifts the Chen score needed to enter a pot, how readily it turns a
+call into a raise, and how big it bets. **Nothing about the equity changes**:
+the arithmetic is the arithmetic, and a voice only moves the bar it is judged
+against and the words it uses.
+
+The names are invented characters, not portraits. A playing style is a
+description of poker and belongs to nobody, but a living player's name is
+theirs, and a thin alias that maps one-to-one onto a real person is that
+person's name wearing a hat. The styles are drawn from schools of thought — the
+small-ball read-the-player approach, the selective-aggressive one, the patient
+positional one, and the old-school argument that position and aggression win
+more pots than cards do. None of the numbers is a claim about how anyone in
+particular plays, and none was measured from anyone's hands. Every name is
+editable, and **Original names** in the same dialog puts them back.
 
 Two honest notes on the numbers:
 
@@ -362,6 +594,161 @@ Replays are stored with the hand, and are the largest thing the app keeps. The
 most recent 150 hands keep theirs; older hands keep their summary row and drop
 the replay, so the history stays storable and the running totals never depend
 on it.
+
+### By position
+
+Where the money actually comes from, seat by seat: hands, bb/100, VPIP, PFR,
+decision accuracy and EV given up from BTN, CO, MP, EP, BB and SB.
+
+**The record used to throw this away.** `HandRecord.position` was
+`'button' | 'other'`, so "how do I play from under the gun" was not a question
+the history could answer — not because the sums were hard but because the
+information was discarded at the moment it was free. Hands played before this
+was added are permanently unplaceable, and the table says how many rather than
+quietly showing a smaller total than the panel above it.
+
+Every win rate carries a confidence band, for the same reason the overall one
+does and more so: split six ways, a home game's history is nowhere near enough
+hands to pin a positional win rate down. A bare column of bb/100 figures
+invites exactly the conclusion the data will not support. Rates under 30 hands
+from a seat are greyed out, and a rate with too little behind it shows a dash
+instead of a number. **Accuracy is the column worth reading first** — decision
+quality settles far sooner than results do.
+
+Positions are running counters on the totals, not something recomputed from the
+stored hands, so trimming old history never changes them.
+
+#### A bug this turned up
+
+Naming the seat existed in three places — the coach's reasoning, the table
+heading, and the record — and two of them were wrong short-handed:
+
+```ts
+if (i === n - 1) return 'on the button'
+if (i === n - 2) return 'in the cut-off'     // ← three-handed, this is the big blind
+if (seat === state.smallBlindSeat) ...
+```
+
+Testing the seat's *index* before testing the blinds is right at a full table
+and wrong below five players, so the coach was telling short-handed players
+they were in the cut-off when they were in the blind — and adjusting its
+pre-flop bar by two Chen points accordingly. Blinds are now decided by the seat
+they actually are, and position by index only for the seats in between. All
+three callers share one `positionOf`.
+
+Worth saying plainly: that bug was harmless while it only produced prose. It
+stopped being harmless the moment the same value started being written into
+permanent history.
+
+### Correcting the record
+
+Hands played to try the app out move your VPIP and your rating exactly as hard
+as hands you meant, which is a problem for the one number this app exists to
+make honest.
+
+**Remove hands**, above the Recent Hands table, turns the list into a
+selection: tap the rows to remove, or take **All coach hands** in one go. It
+always takes two presses, and it is never one tap away from erasing something.
+
+Removing a hand subtracts it from the running totals rather than recounting
+what is left — the counters are kept that way on purpose, so that trimming old
+hands never changes your VPIP. The property that matters is tested directly:
+deleting a hand leaves exactly the totals a history without it would have had,
+for every position in the history and in any order. Two fields are deliberately
+not reversible, `firstAt` and `lastAt`, because a minimum and a maximum cannot
+be recovered by subtraction; the window they feed is only ever too wide, and it
+is cleared when the last hand goes.
+
+Only hands still held in memory can go this way, which is what the list offers
+anyway. A hand older than that is no longer around to subtract, and guessing at
+its contribution would corrupt the totals rather than correct them.
+
+### Start Fresh
+
+**My Game → Start Fresh** puts things back the way they shipped, one line at a
+time, each saying what it takes before it takes it: your hand history, your
+practice history, the coach scorecard, the players, the coaches, the hand
+names, and games in progress.
+
+Two things sit outside **Select everything**. A table in progress is only worth
+clearing deliberately. And the Record Book is never swept up in a bulk action:
+it is the only thing in the app about real money owed between real people, so
+it has to be asked for by name and carries its own warning. Deleting it does
+not settle anything — it just means nobody can look it up.
+
+The point of this is less the deleting than the editing. The personas and the
+coaches are meant to be changed; without a way back to the shipped numbers, the
+safe thing to do with a persona you are curious about is nothing.
+
+### Your biggest leaks
+
+What is actually costing you, worst first — with one column that took more
+thought than the rest of the panel.
+
+**Four of the coach's seven leaks cannot be priced at all.** What it costs to
+check a hand you should have bet depends on what your opponent would have done
+with the bet, and the engine has no way to know. Only the two price mistakes —
+calling too light, folding a good price — have an EV figure behind them,
+because those are the one case where the engine already knows the value of the
+call it is comparing against.
+
+That leaves two bad options and one good one. Dropping the unpriced leaks would
+hide three of the most common mistakes in the app. Pricing them at zero would
+rank them below everything. So they are listed, marked **cost not measurable**,
+and sorted by frequency underneath the priced ones — and the panel says in as
+many words that not measurable is not the same as free.
+
+Which leaks carry a price is not a list typed out by hand. A test drives
+`reviewDecision` through every combination it accepts, collects what it
+actually produces, and fails if `PRICED_LEAKS` and reality have drifted apart.
+
+Severity bands a slip by what one instance typically cost: under 1 bb minor,
+1–4 moderate, past 4 major. Judgement, not measurement — they exist so an
+expensive habit sorts above a frequent one.
+
+### Grades
+
+Each hand in the list carries a letter, from the decisions in that hand and
+nothing else. Matching the coach scores full marks. Departing from it scores at
+most a half **even when nothing measurable was given up**, because a mistake
+nobody can price is still a mistake and scoring it full marks would make three
+of the most common leaks invisible to every grade in the app. A priced mistake
+scores down from there, bottoming out at 6 bb so one catastrophe cannot drag a
+whole session below failing.
+
+A hand with no decisions in it gets a dash, not an A. An average over an empty
+list is a perfect score, which would make folding every hand the best-graded
+way to play.
+
+A single letter on a single hand says very little, and the panel says so — it
+is there to find the hand worth replaying.
+
+### Are you improving?
+
+Your last 100 hands against the 100 before them, **on decision quality rather
+than on money**. A hundred hands of results is so noisy that the confidence
+band swamps any change a person could actually make in that time, so "up 8
+bb/100 this week" would be a coin flip presented as progress. Accuracy and
+expected value given up settle far sooner, which is the same reason the rating
+is built on them.
+
+It does not appear at all until there are two full windows, and it says when
+the windows hold too few decisions for the difference to mean anything rather
+than reporting a direction it cannot support.
+
+### Bet sizing
+
+Raising to the minimum when the coach wanted three times the pot used to score
+as a perfect match: the review only ever compared the *kind* of action, so the
+most recognisable thing about how somebody bets was the one thing that went
+unmarked.
+
+It is now its own leak. Two deliberate choices about it. The decision still
+counts as **agreed**, because the action was right and only the size was not.
+And it carries no cost, because what a different size would have won depends on
+what the opponents would have done with it. The tolerance is wide — under half
+or over double — since the coach's sizing is a heuristic rather than a solved
+number, and flagging every deviation would claim an accuracy it does not have.
 
 ### Rating: how well you do it
 
@@ -668,6 +1055,78 @@ keep a copy or move the book to another device, and **Import JSON** to merge it
 back — nights are matched by id, so re-importing an edited night updates it
 rather than duplicating it. CSV exports are there for spreadsheets.
 
+## Poker, and the house rules on top
+
+The house rules are genuinely strange. Bomb pots deal the flop before anyone
+acts, straddles move who speaks last, and the Dexter pays a bounty for winning
+with the worst hand in poker. Left woven through the engine, the rules of poker
+could not be read, tested or reused without them — and one bug had already come
+from exactly that, drill mode dealing practice spots into bomb pots because the
+monotone-flop trigger fired inside the core street logic.
+
+So they are two layers now:
+
+```
+engine/
+  core/          the rules of poker
+    state.ts       who is in the hand, and how chips reach the middle
+    betting.ts     a betting round: who acts, what they may do, what it costs
+    streets.ts     burn, deal, decide whether anyone may bet
+    pots.ts        side pots by commitment level, odd chips left of the button
+    showdown.ts    best five cards take each pot they were eligible for
+  rules/         what BNOTW does on top
+    straddle.ts    a blind raise that buys the last word
+    bombPot.ts     everybody antes; and the flop that arms the next one
+    dexter.ts      the 7-2 bounty
+  hand.ts        wires the two together
+```
+
+**Nothing in `core/` imports anything from `rules/`.** That direction is
+checked by a test rather than trusted, because it is the kind of thing that
+erodes one convenient import at a time — and the test is verified to fail when
+the rule is broken, not merely to pass when it is kept. It also catches the
+quieter version: `core/` reading `state.pendingDexter` directly does the same
+damage as importing it.
+
+The seams are deliberate and small:
+
+- **A named bet** — "Bob-aloo ($1.75)" — is a joke this table shares, not a
+  rule of poker, so `applyAction` takes the formatter rather than importing it.
+- **A monotone flop** arming the next bomb pot happens *after* the street is
+  dealt, in `hand.ts`, never during. Dealing a board is poker; what this table
+  makes of three hearts is not.
+- **The Dexter** is looked for only once the pots are awarded, which makes it
+  impossible for a house rule to change who actually won.
+
+### Still free functions over plain data
+
+The obvious refactor here is a class hierarchy — `Hand` owning a `Deck`, a
+`BettingRound`, a `PotManager`. It would read more tidily and it would quietly
+break two things: `HandState` crosses a `structuredClone` boundary to reach the
+coach worker, and class instances do not survive that. A test walks a real
+in-progress hand asserting no functions and no class instances anywhere in it,
+because the alternative is finding out at runtime, in a browser, in a worker.
+
+## Where the data lives, key by key
+
+`state/keys.ts` lists every stored key, what it holds and whose it is. It
+exists because deleting a player had a hand-typed list of keys in it: add a
+per-player key, forget that list, and removing somebody leaves their records
+for whoever reuses the id — a bug with no error, no failing test and no symptom
+until someone else's hands appear in a new player's history. The list is
+derived from the registry now, and a test scans the source for `bnotw.*` key
+literals and fails if any is unregistered.
+
+The split is not "personal versus shared" but **whose record is it a record
+of**. Your hands, practice, rating and the table you were sitting at are
+yours. The Record Book, the roster, the hand names and the coaches are the
+crew's — scoping those per player would mean Dave opening the app and finding
+nobody owes anybody anything.
+
+A table in progress counts as the player's, which was a live bug until this
+work: handing the iPad over used to sit the next person behind your chips, and
+cashing out would then have recorded your night under their name.
+
 ## Layout
 
 ```
@@ -702,7 +1161,11 @@ public/            icons and the web app manifest
 
 ## Testing
 
-75 tests, all in `npm test`:
+Every push and pull request runs typecheck, the suite and a production build
+(`.github/workflows/ci.yml`). The long skill measurement runs as its own job so
+that minutes of CPU cannot hide a fast failure behind them.
+
+590 tests, all in `npm test`:
 
 - The hand evaluator is checked against the exact frequency distribution of all
   2,598,960 five-card hands (40 straight flushes, 624 quads, and so on).
@@ -723,6 +1186,25 @@ public/            icons and the web app manifest
   case — two identical profiles — must cancel to *exactly* zero; that check is
   what caught the table's auto-rebuy being counted as profit and quietly
   contaminating every earlier measurement.
+- Deleting a hand is tested as a property rather than by example: the totals
+  after a removal must equal the totals a history that never contained the hand
+  would have had — checked at every position in a 60-hand history, and for
+  batches removed in either order.
+- The React layer is tested with real engine objects rather than mocks
+  (`ui/testTable.tsx` builds an actual `Table` behind the game API). That layer
+  had one test file and every reported bug; it now has eight. The tests there
+  are mostly about the guardrails — that the action bar takes no tap it was not
+  offered, that nothing destructive is ever one press away, and that "had you
+  stayed" always prints the probability above the outcome.
+- The layer-to-leak mapping is tested by *driving* `reviewDecision` through
+  every combination it accepts and collecting the leaks it can actually
+  produce, rather than by comparing against a list typed out by hand. A renamed
+  leak would otherwise leave a layer that silently never settles, which is the
+  kind of bug nothing complains about.
+- The what-if refuses more often than it answers, and each refusal has its own
+  test: a hand that ended pre-flop, one that stopped on the flop, one where
+  everybody folded. Writing it the other way round — asserting the answers and
+  trusting the guards — is how a feature ends up inventing a runout.
 
 ---
 

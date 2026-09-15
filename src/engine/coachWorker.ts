@@ -14,6 +14,7 @@
 
 import { mulberry32 } from './cards'
 import { advise } from './coach'
+import { voice } from './voices'
 import type { CoachAdvice } from './coach'
 import type { HandState, Seat } from './types'
 
@@ -25,6 +26,8 @@ export interface AdviceRequest {
   seat: number
   trials: number
   seed: number
+  /** Whose read to produce. */
+  voiceId?: string
 }
 
 export type AdviceResponse =
@@ -32,11 +35,11 @@ export type AdviceResponse =
   | { id: number; error: string }
 
 self.onmessage = (event: MessageEvent<AdviceRequest>) => {
-  const { id, hand, seats, seat, trials, seed } = event.data
+  const { id, hand, seats, seat, trials, seed, voiceId } = event.data
   try {
     // Seeded rather than Math.random so the same request twice gives the same
     // answer — which makes a reported spot reproducible.
-    const advice = advise(hand, seats, seat, mulberry32(seed), trials)
+    const advice = advise(hand, seats, seat, mulberry32(seed), trials, voice(voiceId ?? 'house'))
     ;(self as unknown as Worker).postMessage({ id, advice } satisfies AdviceResponse)
   } catch (error) {
     ;(self as unknown as Worker).postMessage({

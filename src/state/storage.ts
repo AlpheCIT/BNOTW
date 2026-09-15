@@ -5,10 +5,14 @@
  * reloads but never leaves the device. Export to JSON to move it or back it up.
  */
 
-import { defaultRoster, type Persona } from '../engine/persona'
+import { DEFAULT_TENDENCIES, defaultRoster, type Persona } from '../engine/persona'
 import type { TableSnapshot } from '../engine/table'
 import type { PlayMode } from '../engine/playerStats'
 import type { ProviderId } from '../engine/providers/types'
+import type { CustomHandNames } from '../engine/handNames'
+import type { CustomVoiceNames } from '../engine/voices'
+import { allLayers, type LayerId } from '../engine/layers'
+import { DEFAULT_PROFILE_ID, isGuestId, scopedKey } from './profiles'
 import { emptyTotals, type HandRecord, type PlayerTotals } from '../engine/playerStats'
 import type { GameNight } from './records'
 import { sortNights } from './records'
@@ -22,6 +26,9 @@ const COACH_CREDS_KEY = 'bnotw.coachcreds.v1'
 const TABLE_KEY = 'bnotw.table.v1'
 const COACH_TABLE_KEY = 'bnotw.table.coach.v1'
 const DRILL_KEY = 'bnotw.drill.v1'
+const HAND_NAMES_KEY = 'bnotw.handnames.v1'
+const VOICES_KEY = 'bnotw.voices.v1'
+const LAYERS_KEY = 'bnotw.layers.v1'
 const COACH_KEY = 'bnotw.coach.v1'
 
 export interface RecordBook {
@@ -127,12 +134,20 @@ export function loadRoster(): RosterState {
     const ids = new Set(data.players.map((p) => p.id))
     return {
       version: 1,
-      players: data.players,
+      // Rosters saved before a tendency existed have no value for it, and a
+      // missing dial would read as zero — turning everyone into a small-ball
+      // player overnight. Filled from the defaults instead.
+      players: data.players.map(withTendencyDefaults),
       seated: (data.seated ?? []).filter((id) => ids.has(id)),
     }
   } catch {
     return defaultRosterState()
   }
+}
+
+/** Fill in any tendency a stored persona predates. */
+function withTendencyDefaults(persona: Persona): Persona {
+  return { ...persona, tendencies: { ...DEFAULT_TENDENCIES, ...persona.tendencies } }
 }
 
 export function saveRoster(roster: RosterState): void {
@@ -167,10 +182,10 @@ export function emptyCoachStats(): CoachStats {
   return { version: 1, handsPlayed: 0, decisions: 0, agreed: 0, evLost: 0, leaks: {}, sessions: 0 }
 }
 
-export function loadCoachStats(): CoachStats {
-  if (typeof localStorage === 'undefined') return emptyCoachStats()
+export function loadCoachStats(profileId = DEFAULT_PROFILE_ID): CoachStats {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return emptyCoachStats()
   try {
-    const raw = localStorage.getItem(COACH_KEY)
+    const raw = localStorage.getItem(scopedKey(COACH_KEY, profileId))
     if (!raw) return emptyCoachStats()
     return { ...emptyCoachStats(), ...(JSON.parse(raw) as CoachStats) }
   } catch {
@@ -178,10 +193,10 @@ export function loadCoachStats(): CoachStats {
   }
 }
 
-export function saveCoachStats(stats: CoachStats): void {
-  if (typeof localStorage === 'undefined') return
+export function saveCoachStats(stats: CoachStats, profileId = DEFAULT_PROFILE_ID): void {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return
   try {
-    localStorage.setItem(COACH_KEY, JSON.stringify(stats))
+    localStorage.setItem(scopedKey(COACH_KEY, profileId), JSON.stringify(stats))
   } catch {
     // Ignore; coach stats are a convenience, not data worth failing over.
   }
@@ -198,11 +213,11 @@ export interface PlayerLog {
   hands: HandRecord[]
 }
 
-export function loadPlayerLog(): PlayerLog {
+export function loadPlayerLog(profileId = DEFAULT_PROFILE_ID): PlayerLog {
   const empty: PlayerLog = { version: 1, totals: emptyTotals(), hands: [] }
-  if (typeof localStorage === 'undefined') return empty
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return empty
   try {
-    const raw = localStorage.getItem(PLAYER_KEY)
+    const raw = localStorage.getItem(scopedKey(PLAYER_KEY, profileId))
     if (!raw) return empty
     const data = JSON.parse(raw) as PlayerLog
     if (!data?.totals) return empty
@@ -221,8 +236,9 @@ export function loadPlayerLog(): PlayerLog {
  * list, then everything but the totals — which are the only part that cannot
  * be rebuilt by playing more.
  */
-export function savePlayerLog(log: PlayerLog): void {
-  if (typeof localStorage === 'undefined') return
+export function savePlayerLog(log: PlayerLog, profileId = DEFAULT_PROFILE_ID): void {
+  // A guest is never written down. That is the whole point of a guest.
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return
   const attempts: PlayerLog[] = [
     log,
     { ...log, hands: log.hands.map((h) => ({ ...h, replay: undefined })) },
@@ -231,7 +247,7 @@ export function savePlayerLog(log: PlayerLog): void {
   ]
   for (const attempt of attempts) {
     try {
-      localStorage.setItem(PLAYER_KEY, JSON.stringify(attempt))
+      localStorage.setItem(scopedKey(PLAYER_KEY, profileId), JSON.stringify(attempt))
       return
     } catch {
       // Try the next, smaller shape.
@@ -317,14 +333,25 @@ export function saveCoachCreds(creds: CoachCreds): void {
  * that a browser reclaiming the tab — which iOS does routinely when you switch
  * apps — does not quietly reset your stack and buy-in count.
  */
-function keyFor(mode: PlayMode): string {
-  return mode === 'coach' ? COACH_TABLE_KEY : TABLE_KEY
+/**
+ * Where a table in progress lives.
+ *
+ * Per player, because a stack and a buy-in count belong to whoever built them.
+ * Shared, handing the iPad to Dave would sit him down behind your chips — and
+ * cashing out would then record your night under his name.
+ */
+function keyFor(mode: PlayMode, profileId: string): string {
+  return scopedKey(mode === 'coach' ? COACH_TABLE_KEY : TABLE_KEY, profileId)
 }
 
-export function loadTableSnapshot(mode: PlayMode = 'table'): TableSnapshot | null {
-  if (typeof localStorage === 'undefined') return null
+export function loadTableSnapshot(
+  mode: PlayMode = 'table',
+  profileId = DEFAULT_PROFILE_ID,
+): TableSnapshot | null {
+  // A guest gets a fresh table every time, which is the point of a guest.
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return null
   try {
-    const raw = localStorage.getItem(keyFor(mode))
+    const raw = localStorage.getItem(keyFor(mode, profileId))
     if (!raw) return null
     const data = JSON.parse(raw) as TableSnapshot
     // Anything more than a shape check belongs to Table.restore, which has to
@@ -336,11 +363,15 @@ export function loadTableSnapshot(mode: PlayMode = 'table'): TableSnapshot | nul
 }
 
 /** Pass null to end the session — after a cash-out, or on a fresh deal. */
-export function saveTableSnapshot(mode: PlayMode, snapshot: TableSnapshot | null): void {
-  if (typeof localStorage === 'undefined') return
+export function saveTableSnapshot(
+  mode: PlayMode,
+  snapshot: TableSnapshot | null,
+  profileId = DEFAULT_PROFILE_ID,
+): void {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return
   try {
-    if (snapshot) localStorage.setItem(keyFor(mode), JSON.stringify(snapshot))
-    else localStorage.removeItem(keyFor(mode))
+    if (snapshot) localStorage.setItem(keyFor(mode, profileId), JSON.stringify(snapshot))
+    else localStorage.removeItem(keyFor(mode, profileId))
   } catch {
     // Out of quota, or private browsing. The session simply will not survive
     // being closed, which is exactly where this started — and never a reason
@@ -382,10 +413,10 @@ export function emptyDrillStats(): DrillStats {
   return { version: 1, spots: 0, agreed: 0, evLost: 0, streak: 0, bestStreak: 0, byStreet: {} }
 }
 
-export function loadDrillStats(): DrillStats {
-  if (typeof localStorage === 'undefined') return emptyDrillStats()
+export function loadDrillStats(profileId = DEFAULT_PROFILE_ID): DrillStats {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return emptyDrillStats()
   try {
-    const raw = localStorage.getItem(DRILL_KEY)
+    const raw = localStorage.getItem(scopedKey(DRILL_KEY, profileId))
     if (!raw) return emptyDrillStats()
     const data = JSON.parse(raw) as Partial<DrillStats>
     return {
@@ -399,11 +430,133 @@ export function loadDrillStats(): DrillStats {
   }
 }
 
-export function saveDrillStats(stats: DrillStats): void {
-  if (typeof localStorage === 'undefined') return
+export function saveDrillStats(stats: DrillStats, profileId = DEFAULT_PROFILE_ID): void {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return
   try {
-    localStorage.setItem(DRILL_KEY, JSON.stringify(stats))
+    localStorage.setItem(scopedKey(DRILL_KEY, profileId), JSON.stringify(stats))
   } catch {
     // Practice history is the most disposable thing here; never fail over it.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// What this table calls its hands
+// ---------------------------------------------------------------------------
+
+/**
+ * Names this table has added, renamed or cleared.
+ *
+ * Only the differences from the shipped list are stored, so a later release
+ * that adds a nickname brings it along rather than being shadowed by a frozen
+ * copy of the old list.
+ */
+export function loadHandNames(): CustomHandNames {
+  if (typeof localStorage === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(HAND_NAMES_KEY)
+    if (!raw) return {}
+    const data = JSON.parse(raw) as CustomHandNames
+    if (!data || typeof data !== 'object') return {}
+    const out: CustomHandNames = {}
+    for (const [key, name] of Object.entries(data)) {
+      if (typeof name === 'string') out[key] = name
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+export function saveHandNames(names: CustomHandNames): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(HAND_NAMES_KEY, JSON.stringify(names))
+  } catch {
+    // Flavour, not money. Never worth failing over.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Which coach is talking
+// ---------------------------------------------------------------------------
+
+export interface VoiceSettings {
+  /** Whose read to show. */
+  primary: string
+  /** A second opinion alongside it, or null for one voice. */
+  second: string | null
+  /** Names this table has given them. */
+  names: CustomVoiceNames
+}
+
+export const DEFAULT_VOICES: VoiceSettings = { primary: 'house', second: null, names: {} }
+
+export function loadVoices(): VoiceSettings {
+  if (typeof localStorage === 'undefined') return DEFAULT_VOICES
+  try {
+    const raw = localStorage.getItem(VOICES_KEY)
+    if (!raw) return DEFAULT_VOICES
+    const data = JSON.parse(raw) as Partial<VoiceSettings>
+    return {
+      primary: typeof data.primary === 'string' ? data.primary : 'house',
+      second: typeof data.second === 'string' ? data.second : null,
+      names: data.names && typeof data.names === 'object' ? data.names : {},
+    }
+  } catch {
+    return DEFAULT_VOICES
+  }
+}
+
+export function saveVoices(settings: VoiceSettings): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(VOICES_KEY, JSON.stringify(settings))
+  } catch {
+    // Preference, not data.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Which coaching layers are on
+// ---------------------------------------------------------------------------
+
+/**
+ * The layers this player has turned on, or null when they have never chosen.
+ *
+ * Null is a real answer and not the same as an empty list. It is what lets the
+ * app tell a brand new player from one who had the whole dashboard before
+ * layers existed: turning everything off for the second group would be taking
+ * away numbers they never asked to lose.
+ */
+export function loadLayers(profileId = DEFAULT_PROFILE_ID): LayerId[] | null {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return null
+  try {
+    const raw = localStorage.getItem(scopedKey(LAYERS_KEY, profileId))
+    if (!raw) return null
+    const data = JSON.parse(raw) as unknown
+    if (!Array.isArray(data)) return null
+    const known = new Set<string>(allLayers())
+    return data.filter((id): id is LayerId => typeof id === 'string' && known.has(id))
+  } catch {
+    return null
+  }
+}
+
+export function saveLayers(layers: readonly LayerId[], profileId = DEFAULT_PROFILE_ID): void {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return
+  try {
+    localStorage.setItem(scopedKey(LAYERS_KEY, profileId), JSON.stringify(layers))
+  } catch {
+    // A preference. Never worth failing a hand over.
+  }
+}
+
+/** Forget the choice, so the next load decides afresh. */
+export function clearLayers(profileId = DEFAULT_PROFILE_ID): void {
+  if (typeof localStorage === 'undefined' || isGuestId(profileId)) return
+  try {
+    localStorage.removeItem(scopedKey(LAYERS_KEY, profileId))
+  } catch {
+    // Nothing to do; the stored value is simply kept.
   }
 }

@@ -1,26 +1,45 @@
 import { useMemo, useState } from 'react'
 import { money, signedMoney } from '../engine/bnotw'
 import {
-  diagnose, rating, ratingBand, tendencies, winRate,
-  PROVISIONAL_DECISIONS, RATING_BASE,
+  byPosition, diagnose, handsWithoutPosition, rating, ratingBand, tendencies, winRate,
+  POSITION_SAMPLE, PROVISIONAL_DECISIONS, RATING_BASE,
   type Tendency,
 } from '../engine/playerStats'
+import { POSITION_LABEL } from '../engine/position'
+import {
+  SEVERITY_LABEL, gradeHand, leakReport, trend, type LeakRow, type Trend,
+} from '../engine/grading'
+import { pct } from '../engine/coach'
 import type { HandRecord } from '../engine/playerStats'
 import { leakBrief } from '../engine/brief'
 import { ReplayView } from './ReplayView'
 import type { NarratorApi } from './useNarrator'
 import type { TrackerApi } from './useTracker'
 
+/** How many of the recent hands the list shows at once. */
+const SHOWN = 40
+
 export function StatsView({
-  tracker, narrator,
+  tracker, narrator, onStartFresh,
 }: {
   tracker: TrackerApi
   /** Optional review service; absent when none is configured. */
   narrator?: NarratorApi
+  /** Opens the wider reset, which reaches things this view does not own. */
+  onStartFresh?: () => void
 }) {
   const { totals } = tracker
   const [confirmReset, setConfirmReset] = useState(false)
   const [replaying, setReplaying] = useState<HandRecord | null>(null)
+  /**
+   * Which hands are marked for deletion, by when they were played.
+   *
+   * Null rather than an empty set when not picking: a row has to behave
+   * differently in the two modes — replay, or select — and "no rows chosen
+   * yet" is not the same state as "not choosing".
+   */
+  const [picked, setPicked] = useState<Set<number> | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   /** The hands that cost the most, worst first — the ones worth looking at. */
   const worst = useMemo(
@@ -32,10 +51,32 @@ export function StatsView({
     [tracker.recent],
   )
 
+  const shown = useMemo(() => tracker.recent.slice(0, SHOWN), [tracker.recent])
+
+  const togglePick = (at: number) => {
+    setConfirmDelete(false)
+    setPicked((prev) => {
+      const next = new Set(prev ?? [])
+      if (next.has(at)) next.delete(at)
+      else next.add(at)
+      return next
+    })
+  }
+
+  const doDelete = () => {
+    if (picked && picked.size > 0) tracker.deleteHands([...picked])
+    setPicked(null)
+    setConfirmDelete(false)
+  }
+
   const score = useMemo(() => rating(totals), [totals])
   const results = useMemo(() => winRate(totals), [totals])
   const stats = useMemo(() => tendencies(totals), [totals])
   const notes = useMemo(() => diagnose(totals), [totals])
+  const seats = useMemo(() => byPosition(totals), [totals])
+  const leaks = useMemo(() => leakReport(totals), [totals])
+  const movement = useMemo(() => trend(tracker.recent), [tracker.recent])
+  const unplaced = useMemo(() => handsWithoutPosition(totals), [totals])
 
   if (totals.hands === 0) {
     return (
@@ -260,11 +301,12 @@ export function StatsView({
               </tbody>
             </table>
           </div>
-          {Object.entries(totals.leaks).sort((a, b) => b[1] - a[1]).map(([leak, count]) => (
-            <div className="kv" key={leak}><span>{leak}</span><b>{count}</b></div>
-          ))}
         </div>
       )}
+
+      {leaks.length > 0 && <LeakPanel leaks={leaks} />}
+
+      {movement && <TrendPanel movement={movement} />}
 
       {worst.length > 0 && (
         <div className="panel">
@@ -290,27 +332,169 @@ export function StatsView({
       )}
 
       <div className="panel">
+        <h2>By Position</h2>
+        {seats.length === 0 ? (
+          <p className="sub">
+            Nothing to place yet. Positions have only been recorded since this
+            was added, so the table fills up from your next hands onwards.
+            {unplaced > 0 && ` Your earlier ${unplaced} hands cannot be placed — the
+            record kept only whether you were on the button.`}
+          </p>
+        ) : (
+          <>
+            <p className="sub">
+              Where the money actually comes from. <b>Accuracy</b> is the column
+              worth reading first: decision quality settles far sooner than
+              results do, and a positional win rate is a sixth of an already
+              small sample.
+            </p>
+            <div className="tablewrap">
+              <table className="grid" style={{ minWidth: 520 }}>
+                <thead>
+                  <tr>
+                    <th>Seat</th><th>Hands</th><th>bb/100</th>
+                    <th>VPIP</th><th>PFR</th><th>Accuracy</th><th>EV lost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {seats.map((row) => (
+                    <tr key={row.position} title={POSITION_LABEL[row.position]}>
+                      <td><b>{row.label}</b></td>
+                      <td className="num">{row.hands}</td>
+                      <td className={`num ${row.meaningful ? (row.bbPer100 >= 0 ? 'pos' : 'neg') : 'faint'}`}>
+                        {row.bbPer100 >= 0 ? '+' : ''}{row.bbPer100.toFixed(1)}
+                        {/*
+                          The band is not decoration. Split six ways a home
+                          game's history cannot pin a positional win rate down,
+                          and a bare column of bb/100 invites exactly the
+                          conclusion the data will not support.
+                        */}
+                        <span className="faint" style={{ fontSize: 10, marginLeft: 4 }}>
+                          {Number.isFinite(row.margin) ? `±${row.margin.toFixed(0)}` : '±?'}
+                        </span>
+                      </td>
+                      <td className="num">{row.vpip === null ? '—' : pct(row.vpip)}</td>
+                      <td className="num">{row.pfr === null ? '—' : pct(row.pfr)}</td>
+                      <td className="num">{row.accuracy === null ? '—' : pct(row.accuracy)}</td>
+                      <td className={`num ${row.evLost > 0 ? 'neg' : 'faint'}`}>
+                        {money(row.evLost)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="sub" style={{ marginTop: 8, fontSize: 11 }}>
+              A dash means too few hands from that seat to report a rate.
+              {seats.some((r) => !r.meaningful) && ` Win rates under ${POSITION_SAMPLE} hands are greyed —
+              they are noise wearing a number.`}
+              {unplaced > 0 && ` ${unplaced} earlier hands are not in this table: the record
+              did not keep where you were sitting.`}
+            </p>
+          </>
+        )}
+      </div>
+
+      <div className="panel">
         <h2>Recent Hands</h2>
         <p className="sub">
           The last {tracker.recent.length} hands — tap one to replay it. The totals
           above cover everything ever played, not just these. Older hands keep their
           row but drop the replay, so the history stays storable.
         </p>
+        <p className="sub" style={{ marginTop: -4, fontSize: 11 }}>
+          A grade covers only the decisions in that one hand, so a single letter
+          says very little — it is there to find the hand worth replaying.
+        </p>
+
+        {picked ? (
+          <div className="row picking" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <span className="sub">
+              {picked.size === 0
+                ? 'Tap the hands to remove.'
+                : `${picked.size} hand${picked.size === 1 ? '' : 's'} chosen.`}
+            </span>
+            <button
+              className="btn small ghost"
+              onClick={() => {
+                setConfirmDelete(false)
+                setPicked(new Set(shown.filter((h) => h.mode === 'coach').map((h) => h.at)))
+              }}
+            >
+              All coach hands
+            </button>
+            <button
+              className="btn small ghost"
+              onClick={() => { setConfirmDelete(false); setPicked(new Set(shown.map((h) => h.at))) }}
+            >
+              All {shown.length} shown
+            </button>
+            {confirmDelete ? (
+              <button className="btn small danger" onClick={doDelete}>
+                Yes, remove {picked.size}
+              </button>
+            ) : (
+              <button
+                className="btn small danger"
+                disabled={picked.size === 0}
+                onClick={() => setConfirmDelete(true)}
+              >
+                Remove
+              </button>
+            )}
+            <button
+              className="btn small ghost"
+              onClick={() => { setPicked(null); setConfirmDelete(false) }}
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn small ghost" onClick={() => setPicked(new Set())}>
+              Remove hands
+            </button>
+            <span className="sub">
+              For hands that were you trying the app out rather than you playing.
+              They come straight back out of your rating.
+            </span>
+          </div>
+        )}
+
         <div className="tablewrap">
           <table className="grid" style={{ minWidth: 520 }}>
             <thead>
               <tr>
+                {picked && <th aria-label="Chosen" />}
                 <th>Hand</th><th>Hole</th><th>Saw flop</th><th>Showdown</th>
                 <th>Decisions</th><th>EV lost</th><th>Net</th><th />
               </tr>
             </thead>
             <tbody>
-              {tracker.recent.slice(0, 40).map((hand, i) => (
+              {shown.map((hand, i) => (
                 <tr
                   key={`${hand.mode}-${hand.handNumber}-${i}`}
-                  className={hand.replay ? 'clickable' : ''}
-                  onClick={() => hand.replay && setReplaying(hand)}
+                  className={
+                    picked
+                      ? `clickable ${picked.has(hand.at) ? 'chosen' : ''}`
+                      : (hand.replay ? 'clickable' : '')
+                  }
+                  onClick={() => {
+                    if (picked) togglePick(hand.at)
+                    else if (hand.replay) setReplaying(hand)
+                  }}
                 >
+                  {picked && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={picked.has(hand.at)}
+                        onChange={() => togglePick(hand.at)}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`Remove hand ${hand.handNumber}`}
+                      />
+                    </td>
+                  )}
                   <td>
                     #{hand.handNumber}
                     {hand.bomb && <span className="tag bomb" style={{ marginLeft: 6 }}>Bomb</span>}
@@ -320,6 +504,7 @@ export function StatsView({
                     )}
                   </td>
                   <td className="num">{hand.hole}</td>
+                  <td><HandLetter hand={hand} /></td>
                   <td>{hand.sawFlop ? 'Yes' : '—'}</td>
                   <td>{hand.showdown ? (hand.wonShowdown ? 'Won' : 'Lost') : '—'}</td>
                   <td>{hand.decisions.length}</td>
@@ -327,7 +512,7 @@ export function StatsView({
                     {money(hand.decisions.reduce((s, d) => s + d.evLost, 0))}
                   </td>
                   <td className={hand.net >= 0 ? 'pos' : 'neg'}>{signedMoney(hand.net)}</td>
-                  <td className="faint">{hand.replay ? '›' : ''}</td>
+                  <td className="faint">{picked ? '' : (hand.replay ? '›' : '')}</td>
                 </tr>
               ))}
             </tbody>
@@ -339,9 +524,10 @@ export function StatsView({
         <h2>Start Over</h2>
         <p className="sub">
           Clears every tracked hand, your tendencies and your rating. The Record
-          Book is separate and is not touched.
+          Book is separate and is not touched. To remove a few hands rather than
+          all of them, use Remove hands above.
         </p>
-        <div className="row">
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           {confirmReset ? (
             <>
               <button className="btn danger" onClick={() => { tracker.reset(); setConfirmReset(false) }}>
@@ -354,7 +540,19 @@ export function StatsView({
               Reset my stats
             </button>
           )}
+          {onStartFresh && (
+            <button className="btn small ghost" onClick={onStartFresh}>
+              Start Fresh…
+            </button>
+          )}
         </div>
+        {onStartFresh && (
+          <p className="sub" style={{ marginTop: 8 }}>
+            Start Fresh reaches further: the players, the coaches and the hand
+            names can all go back to the way they shipped, which is what makes
+            it safe to edit them in the first place.
+          </p>
+        )}
       </div>
 
       {replaying?.replay && (
@@ -368,6 +566,157 @@ export function StatsView({
           }}
           onClose={() => setReplaying(null)}
         />
+      )}
+    </div>
+  )
+}
+
+/**
+ * One hand's grade, or a dash where there was nothing to judge.
+ *
+ * A hand you folded pre-flop for free has no decisions the coach weighed in
+ * on, and an average over none of them would come out a perfect A — which
+ * would make folding everything the highest-scoring way to play.
+ */
+function HandLetter({ hand }: { hand: HandRecord }) {
+  const graded = gradeHand(hand)
+  if (!graded) return <span className="faint">—</span>
+  return (
+    <span
+      className={`grade g-${graded.overall.letter.toLowerCase()}`}
+      title={`${graded.overall.decisions} decision${graded.overall.decisions === 1 ? '' : 's'} in this hand`}
+    >
+      {graded.overall.letter}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * What is actually costing you, worst first.
+ *
+ * The important design decision is the second column. Four of the coach's
+ * leaks cannot be priced at all — what it costs to check a hand you should
+ * have bet depends on what the opponent would have done with the bet, and the
+ * engine does not know. Dropping them would hide three of the most common
+ * mistakes in the app; pricing them at zero would rank them last. So they are
+ * listed, marked, and sorted by how often they happen instead.
+ */
+function LeakPanel({ leaks }: { leaks: LeakRow[] }) {
+  const priced = leaks.filter((l) => l.priced)
+  const total = priced.reduce((sum, l) => sum + l.evLost, 0)
+
+  return (
+    <div className="panel">
+      <h2>Your Biggest Leaks</h2>
+      <p className="sub">
+        {total > 0
+          ? <>Ranked by what they have cost, not by how often they happen. The
+            top of this list is what to fix first.</>
+          : <>Ranked by how often they happen. Nothing here has a measurable
+            price on it yet.</>}
+      </p>
+
+      <div className="leaklist">
+        {leaks.map((row, i) => (
+          <div className="leakrow" key={row.leak}>
+            <span className="leakrank">{i + 1}</span>
+            <div className="leakbody">
+              <div className="leakhead">
+                <b>{row.leak}</b>
+                {row.severity && (
+                  <span className={`tag sev-${row.severity}`}>
+                    {SEVERITY_LABEL[row.severity]}
+                  </span>
+                )}
+              </div>
+              <div className="sub">
+                {row.count} time{row.count === 1 ? '' : 's'}
+                {row.priced
+                  ? ` · about ${money(row.evLost)} given up, ${row.bbLost.toFixed(1)} big blinds`
+                  : ' · cost not measurable'}
+              </div>
+              {row.priced && total > 0 && (
+                <div className="leakbar">
+                  <i style={{ width: `${Math.max(2, row.share * 100)}%` }} />
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {leaks.some((l) => !l.priced) && (
+        <p className="sub" style={{ marginTop: 10, fontSize: 11 }}>
+          &ldquo;Cost not measurable&rdquo; does not mean free. What a missed
+          value bet would have won depends on what the other players would have
+          done with it, and the engine has no way to know — so it counts those
+          rather than inventing a figure to rank them by.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Are you getting better?
+ *
+ * On decision quality, never on money. A hundred hands of results is so noisy
+ * that the confidence band swamps any change a person could actually make in
+ * that time — "up 8 bb/100 this week" would be a coin flip presented as
+ * progress. Accuracy and expected value given up settle far sooner, which is
+ * the same reason the rating is built on them.
+ */
+function TrendPanel({ movement }: { movement: Trend }) {
+  const { recent, previous, accuracyChange, enough } = movement
+  const better = accuracyChange > 0.01
+  const worse = accuracyChange < -0.01
+
+  return (
+    <div className="panel">
+      <h2>Are You Improving?</h2>
+      <p className="sub">
+        Your last {recent.hands} hands against the {previous.hands} before them —
+        on how well you decided, not on what you won.
+      </p>
+
+      <div className="summary-grid">
+        <div className="summary-cell">
+          <b>{pct(previous.accuracy)}</b><span>Then</span>
+        </div>
+        <div className="summary-cell">
+          <b>{pct(recent.accuracy)}</b><span>Now</span>
+        </div>
+        <div className={`summary-cell ${enough ? (better ? 'good' : worse ? 'bad' : '') : ''}`}>
+          <b>
+            {accuracyChange >= 0 ? '+' : ''}
+            {(accuracyChange * 100).toFixed(1)}
+          </b>
+          <span>Points</span>
+        </div>
+        <div className="summary-cell">
+          <b className={movement.costChange <= 0 ? '' : 'neg'}>
+            {money(Math.round(recent.evLostPer100))}
+          </b>
+          <span>EV lost per 100</span>
+        </div>
+      </div>
+
+      {enough ? (
+        <p className="sub" style={{ margin: '8px 0 0' }}>
+          {better
+            ? 'Matching the coach more often than you were. That is the number worth watching.'
+            : worse
+              ? 'Matching the coach less often than you were. Worth a look at the leaks above.'
+              : 'Holding steady.'}
+        </p>
+      ) : (
+        <p className="sub" style={{ margin: '8px 0 0' }}>
+          Only {Math.min(recent.decisions, previous.decisions)} decisions in the
+          smaller window — not enough yet for the difference to mean anything.
+          Shown so you can watch it fill up.
+        </p>
       )}
     </div>
   )

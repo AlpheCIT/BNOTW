@@ -7,11 +7,20 @@ import { cardCode } from '../engine/cards'
 import { shortHand } from '../engine/handEval'
 import { pct, showdownEquity, type EquityResult } from '../engine/coach'
 import { bestHand, legalActions, livePlayers, potTotal } from '../engine/hand'
+import { handName, type CustomHandNames } from '../engine/handNames'
+import { voice, voiceName } from '../engine/voices'
+import { DEFAULT_VOICES, type VoiceSettings } from '../state/storage'
 import { guardFor, type Guard, type GuardOptions } from '../engine/misclick'
+import { whatIf, type WhatIfResult } from '../engine/whatIf'
+import { allLayers, tableNotes, type LayerId } from '../engine/layers'
+import { readFor } from '../engine/reads'
+import { positionLabelFor as positionLabel } from '../engine/position'
 import { useAdvice } from './useAdvice'
 import type { Action, HandPlayer, HandState, Seat as SeatModel } from '../engine/types'
 import { Avatar } from './Avatar'
 import { CoachPanel } from './CoachPanel'
+import { ReplayView } from './ReplayView'
+import { WhatIfPanel } from './WhatIfPanel'
 import { CardRow, PlayingCard } from './pieces'
 import type { PlayMode } from '../engine/playerStats'
 import type { CoachApi } from './useCoach'
@@ -19,18 +28,6 @@ import type { NarratorApi } from './useNarrator'
 import type { GameApi } from './useGame'
 import type { TrackerApi } from './useTracker'
 
-/** Where a seat sits, in the words a player would use. */
-function positionLabel(hand: HandState | null, seat: number): string {
-  if (!hand) return 'in this seat'
-  const i = hand.order.indexOf(seat)
-  const n = hand.order.length
-  if (i === n - 1) return 'on the button'
-  if (i === n - 2) return 'in the cut-off'
-  if (seat === hand.smallBlindSeat) return 'in the small blind'
-  if (seat === hand.bigBlindSeat) return 'in the big blind'
-  if (i <= Math.floor(n / 3)) return 'in early position'
-  return 'in middle position'
-}
 
 /** Seats sit on an ellipse with the human parked at the bottom. */
 function ellipse(index: number, total: number, rx: number, ry: number) {
@@ -52,6 +49,7 @@ function betSpot(index: number, total: number) {
 
 export function TableView({
   game, onCashOut, coach, tracker, mode = 'table', narrator, guardOptions = {},
+  handNames = {}, voices = DEFAULT_VOICES, layers = allLayers(),
 }: {
   game: GameApi
   onCashOut: () => void
@@ -64,6 +62,12 @@ export function TableView({
   narrator?: NarratorApi
   /** When to ask twice before an action you cannot take back. */
   guardOptions?: GuardOptions
+  /** Nicknames this table has added or changed. */
+  handNames?: CustomHandNames
+  /** Whose read to show, and an optional second opinion beside it. */
+  voices?: VoiceSettings
+  /** Which coaching layers are on. Coach mode only. */
+  layers?: readonly LayerId[]
 }) {
   const { table, version } = game
   const hand = table.hand
@@ -81,7 +85,18 @@ export function TableView({
    * needs it the moment you act, and starting it now means it is almost always
    * ready by then rather than being raced on the main thread after the tap.
    */
-  const scoring = useAdvice(hand, table.seats, seat, myTurn, 1500)
+  const scoring = useAdvice(hand, table.seats, seat, myTurn, 1500, voices.primary)
+  /*
+   * A second read on the same spot, when one is chosen.
+   *
+   * Two coaches agreeing is reassuring and two disagreeing is the actually
+   * useful case — marginal hands are marginal precisely because good players
+   * differ on them, and one confident verdict hides that.
+   */
+  const secondScoring = useAdvice(
+    hand, table.seats, seat, Boolean(coach) && myTurn && Boolean(voices.second),
+    1200, voices.second ?? 'house',
+  )
   // Only coach mode puts it on screen; the table uses it silently for tracking.
   const advice = coach ? scoring.advice : null
 
@@ -148,14 +163,78 @@ export function TableView({
     wasMyTurn.current = myTurn
   }, [myTurn, coach])
 
+  /**
+   * The equity you had at the moment you folded, kept until the hand ends.
+   *
+   * Held here rather than read back from the record because the what-if is
+   * about the hand you are still looking at, and the record is not written
+   * until the hand is over. Keyed by hand number so that a stale figure from
+   * an earlier fold can never be shown against this hand's runout.
+   */
+  const foldedAt = useRef<{ handNumber: number; equity: number } | null>(null)
+
   const act = (action: Action) => {
     // Normally already waiting; `now()` only computes if you acted faster than
     // the background pass.
     const scored = scoring.now()
     if (coach && scored) coach.record(scored, action)
     if (hand && tracker && scored) tracker.recordDecision(hand, scored, action)
+    if (hand && action.kind === 'fold') {
+      foldedAt.current = scored
+        ? { handNumber: hand.handNumber, equity: scored.equity.equity }
+        : null
+    }
     game.act(action)
   }
+
+  /**
+   * How the hand would have finished, once it has.
+   *
+   * Coach mode only. Computed from the finished hand rather than stored, so it
+   * costs nothing until there is something to show — and it disappears with
+   * the hand, which is the right lifetime for a study aid.
+   */
+  const [hideWhatIf, setHideWhatIf] = useState(false)
+  const afterFold = useMemo<WhatIfResult | null>(() => {
+    if (!coach || !hand?.complete) return null
+    if (!hand.players[seat]?.folded) return null
+    return whatIf(hand, table.seats, seat)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coach, hand, hand?.complete, seat, table])
+
+  // A new hand gets a clean slate: the panel is dismissed per hand, not once.
+  useEffect(() => { setHideWhatIf(false) }, [hand?.handNumber])
+
+  /**
+   * How each live opponent has been playing, for the player layer.
+   *
+   * The same observations the bots use on each other, so what you are shown is
+   * what the table actually knows rather than a second set of numbers kept for
+   * display.
+   */
+  const opponentReads = useMemo(() => {
+    if (!coach || !hand || !layers.includes('player')) return []
+    return livePlayers(hand)
+      .filter((p) => p.seat !== seat)
+      .map((p) => ({
+        seat: p.seat,
+        name: table.seats[p.seat]?.name ?? `Seat ${p.seat + 1}`,
+        read: readFor(table.reads, p.seat),
+      }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coach, hand, version, seat, table, layers])
+
+  const houseNotes = useMemo(
+    () => (coach && layers.includes('table') ? tableNotes(hand) : []),
+    [coach, layers, hand],
+  )
+
+  /** The last hand played in this mode, for the replay one tap away. */
+  const [replayLast, setReplayLast] = useState(false)
+  const lastHand = useMemo(
+    () => tracker?.recent.find((h) => h.mode === mode && h.replay),
+    [tracker?.recent, mode],
+  )
 
   return (
     <div className="table-screen">
@@ -184,6 +263,15 @@ export function TableView({
           <b className="num">{table.human.buyIns}</b>
           <span>Buy-ins</span>
         </div>
+        {lastHand && (
+          <button
+            className="btn small ghost"
+            style={{ alignSelf: 'center' }}
+            onClick={() => setReplayLast(true)}
+          >
+            Last hand
+          </button>
+        )}
         {coach ? (
           <label className="stat xray-row" style={{ cursor: 'pointer' }}>
             <input
@@ -255,6 +343,7 @@ export function TableView({
               isWinner={game.winners.includes(tableSeat.seat)}
               xray={Boolean(coach?.xray)}
               odds={xrayOdds?.get(tableSeat.seat) ?? null}
+              handNames={handNames}
             />
           ))}
         </div>
@@ -263,16 +352,47 @@ export function TableView({
       {!coach && <HandLog hand={hand} />}
       </div>
       {coach && (
-        <CoachPanel
-          advice={advice}
-          pending={coach ? scoring.pending : false}
-          review={coach.lastReview}
-          narrator={narrator}
-          position={positionLabel(hand, seat)}
-        />
+        <div className="coach-column">
+          <CoachPanel
+            advice={advice}
+            pending={coach ? scoring.pending : false}
+            speaker={voiceName(voice(voices.primary), voices.names)}
+            second={voices.second ? {
+              name: voiceName(voice(voices.second), voices.names),
+              advice: secondScoring.advice,
+            } : null}
+            review={coach.lastReview}
+            narrator={narrator}
+            position={positionLabel(hand, seat)}
+            layers={layers}
+            reads={opponentReads}
+            tableNotes={houseNotes}
+          />
+          {afterFold && !hideWhatIf && (
+            <WhatIfPanel
+              result={afterFold}
+              equityAtFold={
+                foldedAt.current && foldedAt.current.handNumber === hand?.handNumber
+                  ? foldedAt.current.equity
+                  : null
+              }
+              onClose={() => setHideWhatIf(true)}
+            />
+          )}
+        </div>
       )}
       </div>
       <Controls game={game} act={act} guardOptions={guardOptions} />
+
+      {replayLast && lastHand?.replay && (
+        <ReplayView
+          replay={lastHand.replay}
+          decisions={lastHand.decisions}
+          note={lastHand.note ?? ''}
+          onNote={(note) => tracker?.setNote(lastHand.at, note)}
+          onClose={() => setReplayLast(false)}
+        />
+      )}
     </div>
   )
 }
@@ -290,7 +410,7 @@ function bombCountdown(table: GameApi['table']): string {
 // ---------------------------------------------------------------------------
 
 function SeatPlate({
-  seat, hand, total, isWinner, xray, odds,
+  seat, hand, total, isWinner, xray, odds, handNames = {},
 }: {
   seat: SeatModel
   hand: HandState | null
@@ -298,6 +418,7 @@ function SeatPlate({
   isWinner: boolean
   xray: boolean
   odds: EquityResult | null
+  handNames?: CustomHandNames
 }) {
   const player: HandPlayer | undefined = hand?.players[seat.seat]
   const pos = ellipse(seat.seat, total, 43, 39)
@@ -316,8 +437,15 @@ function SeatPlate({
     !player ? 'out' : '',
   ].filter(Boolean).join(' ')
 
-  const handLabel = player && showFace && hand && hand.board.length >= 3 && !player.folded
-    ? shortHand(bestHand(hand, seat.seat)!)
+  /*
+   * After the flop, what the hand actually is. Before it, what the table calls
+   * it — which is the only thing there is to say about two cards, and the
+   * thing people say out loud.
+   */
+  const handLabel = player && showFace && hand && !player.folded
+    ? (hand.board.length >= 3
+      ? shortHand(bestHand(hand, seat.seat)!)
+      : handName(player.hole, handNames))
     : null
 
   return (
@@ -624,6 +752,7 @@ function ActionButtons({
       quick.push({ label: bet.name, value: bet.amount, named: true })
     }
   }
+  quick.push({ label: legal.canBet ? 'Min bet' : 'Min raise', value: legal.minRaiseTo })
   for (const [label, fraction] of [['½ pot', 0.5], ['¾ pot', 0.75], ['Pot', 1]] as const) {
     const value = clamp(toChipIncrement(hand.currentBet + pot * fraction), legal)
     if (value > legal.minRaiseTo && value < legal.maxRaiseTo) quick.push({ label, value })
@@ -691,33 +820,50 @@ function ActionButtons({
         </div>
       ) : (
       <div className={`action-buttons ${settled ? '' : 'settling'}`}>
-        <button
-          className="btn fold"
-          disabled={!legal.canFold}
-          onClick={() => attempt({ kind: 'fold' })}
-        >
-          Fold
-        </button>
-
-        {legal.canCheck ? (
-          <button className="btn check" onClick={() => attempt({ kind: 'check' })}>Check</button>
-        ) : (
-          <button className="btn call" onClick={() => attempt({ kind: 'call' })}>
-            Call
-            <small>{money(legal.callAmount)}{legal.callIsAllIn ? ' · all in' : ''}</small>
-          </button>
-        )}
-
         {raising ? (
-          <button className="btn raise" onClick={submitRaise}>
-            {legal.canBet ? 'Bet' : 'Raise to'}
-            <small>{money(amount)}</small>
-          </button>
+          /*
+           * While a bet is being composed, nothing else is on offer.
+           *
+           * Fold, Check and Call used to stay live underneath the slider, so
+           * setting a custom amount and then reaching for the confirm button
+           * could land on Check instead — the bet you just dialled in thrown
+           * away by the tap meant to place it. Two buttons here, and one of
+           * them is the bet.
+           */
+          <>
+            <button className="btn" onClick={() => setRaising(false)}>← Back</button>
+            <button className="btn raise" onClick={submitRaise}>
+              {legal.canBet ? 'Bet' : 'Raise to'}
+              <small>{money(amount)}</small>
+            </button>
+          </>
         ) : (
-          <button className="btn raise" disabled={!canOpenRaise} onClick={() => setRaising(true)}>
-            {legal.canBet ? 'Bet' : 'Raise'}
-            <small>{canOpenRaise ? `from ${money(legal.minRaiseTo)}` : 'not available'}</small>
-          </button>
+          <>
+            <button
+              className="btn fold"
+              disabled={!legal.canFold}
+              onClick={() => attempt({ kind: 'fold' })}
+            >
+              Fold
+            </button>
+
+            {legal.canCheck ? (
+              <button className="btn check" onClick={() => attempt({ kind: 'check' })}>
+                Check
+                <small>free</small>
+              </button>
+            ) : (
+              <button className="btn call" onClick={() => attempt({ kind: 'call' })}>
+                Call
+                <small>{money(legal.callAmount)}{legal.callIsAllIn ? ' · all in' : ''}</small>
+              </button>
+            )}
+
+            <button className="btn raise" disabled={!canOpenRaise} onClick={() => setRaising(true)}>
+              {legal.canBet ? 'Bet' : 'Raise'}
+              <small>{canOpenRaise ? `from ${money(legal.minRaiseTo)}` : 'not available'}</small>
+            </button>
+          </>
         )}
       </div>
       )}

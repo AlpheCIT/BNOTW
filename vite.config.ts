@@ -6,7 +6,10 @@ export default defineConfig({
   base: './',
   test: {
     globals: true,
+    // Node by default, because the engine is the bulk of the suite and does
+    // not need a DOM. UI tests opt in per file with a
+    // `@vitest-environment jsdom` docblock rather than slowing everything.
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
   },
 })

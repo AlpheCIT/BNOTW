@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { advise, type CoachAdvice } from '../engine/coach'
+import { voice as voiceById } from '../engine/voices'
 import type { AdviceRequest, AdviceResponse } from '../engine/coachWorker'
 import type { HandState, Seat } from '../engine/types'
 
@@ -56,6 +57,8 @@ export function useAdvice(
   seat: number,
   enabled: boolean,
   trials = 1500,
+  /** Whose read this is. */
+  voiceId = 'house',
 ): AdviceApi {
   const [advice, setAdvice] = useState<CoachAdvice | null>(null)
   const [pending, setPending] = useState(false)
@@ -84,7 +87,7 @@ export function useAdvice(
       // Yield first, so the spot paints before the main thread is tied up.
       const timer = setTimeout(() => {
         if (latest.current !== id) return
-        setAdvice(advise(hand, seats, seat, Math.random, trials))
+        setAdvice(advise(hand, seats, seat, Math.random, trials, voiceById(voiceId)))
         setPending(false)
       }, 0)
       return () => clearTimeout(timer)
@@ -97,21 +100,21 @@ export function useAdvice(
     }
     w.addEventListener('message', onMessage)
     w.postMessage({
-      id, hand, seats, seat, trials,
+      id, hand, seats, seat, trials, voiceId,
       seed: Math.floor(Math.random() * 2 ** 31),
     } satisfies AdviceRequest)
 
     return () => w.removeEventListener('message', onMessage)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, trials])
+  }, [key, trials, voiceId])
 
   const now = useCallback((): CoachAdvice | null => {
     if (advice) return advice
     if (!hand || hand.phase !== 'acting' || hand.actingSeat !== seat) return null
     // Acted before the background answer landed. Fewer trials, because this one
     // is being waited on: a rougher number now beats a sharper one too late.
-    return advise(hand, seats, seat, Math.random, Math.min(trials, 700))
-  }, [advice, hand, seats, seat, trials])
+    return advise(hand, seats, seat, Math.random, Math.min(trials, 700), voiceById(voiceId))
+  }, [advice, hand, seats, seat, trials, voiceId])
 
   return { advice, pending, now }
 }

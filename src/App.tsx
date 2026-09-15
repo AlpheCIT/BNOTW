@@ -3,19 +3,33 @@ import {
   BUY_IN_CASH, BUY_IN_CHIPS, HIGH_ROLLER_FEE, money, owesHighRollerFee, signedMoney,
 } from './engine/bnotw'
 import type { Persona } from './engine/persona'
+import type { PlayerTotals } from './engine/playerStats'
 import { PROVIDERS, providerInfo } from './engine/providers'
+import { VOICES, voice, voiceName } from './engine/voices'
+import {
+  LAYERS, STARTING_LAYERS, allLayers, layerProgress, suggestLayer, type LayerId,
+} from './engine/layers'
 import type { BombPotTrigger, TableSettings } from './engine/table'
 import { blankNight, makeId, type GameNight, type NightPlayer } from './state/records'
 import {
-  loadBook, loadCoachCreds, loadRoster, loadSettings, saveBook, saveCoachCreds,
-  saveRoster, saveSettings,
-  type CoachCreds, type RecordBook, type RosterState,
+  loadBook, loadCoachCreds, loadHandNames, loadLayers, loadRoster, loadSettings, loadVoices,
+  saveBook, saveCoachCreds, saveHandNames, saveLayers, saveVoices,
+  saveRoster, saveSettings, saveTableSnapshot,
+  type CoachCreds, type RecordBook, type RosterState, type VoiceSettings,
 } from './state/storage'
 import { backupIsOverdue, requestPersistentStorage, shareBackup } from './state/backup'
+import { applyReset, type ResetAreaId } from './state/factory'
+import {
+  DEFAULT_PROFILE_ID, displayName, experienceMeta, guestProfile, hasLegacyHistory,
+  forgetProfile, initialsFor, isGuest, loadActiveProfile, loadProfiles, makeProfile,
+  saveActiveProfile, saveProfiles, type LocalProfile,
+} from './state/profiles'
 import { CoachScorecard } from './ui/CoachPanel'
 import { DrillView } from './ui/DrillView'
 import { PlayersView } from './ui/Players'
+import { PlayerForm, PlayerPicker } from './ui/PlayerPicker'
 import { RecordBookView } from './ui/RecordBook'
+import { ResetDialog } from './ui/ResetDialog'
 import { RulesView } from './ui/RulesView'
 import { StatsView } from './ui/StatsView'
 import { TableView } from './ui/TableView'
@@ -72,6 +86,50 @@ function seatedPersonas(roster: RosterState): Persona[] {
 }
 
 export default function App() {
+  /**
+   * Who is playing, and every record that follows from it.
+   *
+   * `null` means nobody has been chosen yet, which puts the picker up before
+   * anything else. A guest is a profile that is never stored: everything they
+   * play stays in memory and leaves nothing behind, which is what makes
+   * handing the iPad over cost nobody their record.
+   */
+  const [profiles, setProfilesState] = useState<LocalProfile[]>(() => {
+    const stored = loadProfiles()
+    if (stored.length > 0) return stored
+    // Somebody has been playing since before profiles existed. Their history
+    // lives under the unscoped keys, so the default profile is theirs — seeded
+    // rather than left for them to find as a stranger's empty record.
+    if (hasLegacyHistory()) {
+      const name = loadSettings(DEFAULT_PREFS).playerName || 'Me'
+      return [makeProfile({ id: DEFAULT_PROFILE_ID, name })]
+    }
+    return []
+  })
+  const [player, setPlayer] = useState<LocalProfile | null>(() => {
+    const stored = loadProfiles()
+    const id = loadActiveProfile()
+    if (id) {
+      const found = stored.find((p) => p.id === id)
+      if (found) return found
+    }
+    // One profile and nobody else to confuse it with: no need to ask.
+    if (stored.length === 0 && hasLegacyHistory()) {
+      const name = loadSettings(DEFAULT_PREFS).playerName || 'Me'
+      return makeProfile({ id: DEFAULT_PROFILE_ID, name })
+    }
+    return null
+  })
+  const [switching, setSwitching] = useState(false)
+  const [editingPlayer, setEditingPlayer] = useState<LocalProfile | null>(null)
+  const profileId = player?.id ?? DEFAULT_PROFILE_ID
+  const guest = isGuest(player)
+
+  const setProfiles = useCallback((next: LocalProfile[]) => {
+    setProfilesState(next)
+    saveProfiles(next)
+  }, [])
+
   const [tab, setTab] = useState<Tab>('table')
   const [prefs, setPrefs] = useState<Preferences>(() => loadSettings(DEFAULT_PREFS))
   const [book, setBookState] = useState<RecordBook>(() => loadBook())
@@ -80,6 +138,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showCashOut, setShowCashOut] = useState(false)
   const [showCoachStats, setShowCoachStats] = useState(false)
+  const [showReset, setShowReset] = useState(false)
   // Held apart from the rest of the settings so it never rides along in an export.
   const [coachCreds, setCoachCredsState] = useState<CoachCreds>(() => loadCoachCreds())
 
@@ -98,14 +157,39 @@ export default function App() {
   // Both are remembered across a reload, each under its own mode. A coach
   // session is still not a night — it never reaches the Record Book — but
   // losing one to a reclaimed tab is as annoying as losing a real one.
-  const game = useGame(tableSettings, tab === 'table', 'table')
-  const coachGame = useGame(tableSettings, tab === 'coach', 'coach')
-  const coach = useCoach()
-  const tracker = useTracker()
+  const game = useGame(tableSettings, tab === 'table', 'table', profileId)
+  const coachGame = useGame(tableSettings, tab === 'coach', 'coach', profileId)
+  const coach = useCoach(profileId)
+  const tracker = useTracker(profileId)
   const update = useAppUpdate()
   // Offered after a night is recorded, which is the one moment there is
   // something new worth keeping and nobody is mid-hand.
   const [offerBackup, setOfferBackup] = useState(false)
+  const [voices, setVoicesState] = useState(() => loadVoices())
+  const setVoices = useCallback((next: VoiceSettings) => {
+    setVoicesState(next)
+    saveVoices(next)
+  }, [])
+  /**
+   * Which coaching layers are on. Null until it has been decided.
+   *
+   * Never guessed at on the first render: a player who had the whole panel
+   * before layers existed must not open the app to find most of it gone, and
+   * telling them apart from a genuinely new player needs the history read back
+   * first. Until then everything shows, which is the safe way to be wrong.
+   */
+  const [layers, setLayersState] = useState<LayerId[] | null>(() => loadLayers(profileId))
+  const setLayers = useCallback((next: LayerId[]) => {
+    setLayersState(next)
+    saveLayers(next, profileId)
+  }, [profileId])
+  // Switching player swaps their layers too; theirs are not yours.
+  useEffect(() => { setLayersState(loadLayers(profileId)) }, [profileId])
+  const [handNames, setHandNamesState] = useState(() => loadHandNames())
+  const setHandNames = useCallback((next: Record<string, string>) => {
+    setHandNamesState(next)
+    saveHandNames(next)
+  }, [])
 
   /**
    * Ask the browser not to evict this origin under storage pressure.
@@ -115,7 +199,7 @@ export default function App() {
    */
   useEffect(() => { void requestPersistentStorage() }, [])
   // Seeded from your real record, so the weakest street comes up most.
-  const drill = useDrill(opponents, tracker.totals, prefs.playerName, tab === 'drill')
+  const drill = useDrill(opponents, tracker.totals, prefs.playerName, tab === 'drill', profileId)
   // Two narrators: an explanation at the table is about one decision, and a
   // review in My Game is about a whole history. Sharing one would have each
   // wipe the other's answer.
@@ -129,11 +213,58 @@ export default function App() {
   const tableNarrator = useNarrator(prefs.coachEndpoint, narratorConfig)
   const reviewNarrator = useNarrator(prefs.coachEndpoint, narratorConfig)
 
+  /**
+   * Settle the layers once, the first time the history is readable.
+   *
+   * Anyone with decisions already on the record gets everything, because that
+   * is what they had. Anyone starting fresh gets one question.
+   */
+  useEffect(() => {
+    if (layers !== null || !tracker.hydrated) return
+    // Somebody with decisions already on the record gets everything, because
+    // that is what they had. Otherwise it follows from what they told the
+    // picker about how much poker they have played.
+    if (tracker.totals.decisions > 0) setLayers(allLayers())
+    else setLayers([...experienceMeta(player?.experience ?? 'casual').layers])
+  }, [layers, setLayers, tracker.hydrated, tracker.totals.decisions, player?.experience])
+
+  const activeLayers = layers ?? allLayers()
+
+  /**
+   * The next layer worth offering, once dismissed for the session.
+   *
+   * Session-scoped rather than stored: a suggestion declined in March is not a
+   * suggestion declined forever, and nagging is what makes a prompt something
+   * people learn to tap past without reading.
+   */
+  const [waved, setWaved] = useState<LayerId[]>([])
+  const nextLayer = useMemo(() => {
+    const suggestion = suggestLayer(tracker.totals, activeLayers)
+    return suggestion && !waved.includes(suggestion.layer.id) ? suggestion : null
+  }, [tracker.totals, activeLayers, waved])
+
   useEffect(() => { saveSettings(prefs) }, [prefs])
   useEffect(() => {
     game.setSpeed(prefs.speed)
     coachGame.setSpeed(prefs.speed)
   }, [prefs.speed, game, coachGame])
+
+  /** Sit somebody down. Remembered, unless it is the guest. */
+  const choosePlayer = useCallback((next: LocalProfile) => {
+    setPlayer(next)
+    saveActiveProfile(next.id)
+    setSwitching(false)
+    if (!isGuest(next)) {
+      setProfilesState((prev) => {
+        const seen = prev.some((p) => p.id === next.id)
+        const merged = seen
+          ? prev.map((p) => (p.id === next.id ? { ...next, lastPlayedAt: Date.now() } : p))
+          : [...prev, { ...next, lastPlayedAt: Date.now() }]
+        saveProfiles(merged)
+        return merged
+      })
+    }
+  }, [])
 
   const setBook = useCallback((next: RecordBook) => {
     setBookState(next)
@@ -149,6 +280,39 @@ export default function App() {
     setRosterState(next)
     saveRoster(next)
   }, [])
+
+  /**
+   * Carry out a Start Fresh.
+   *
+   * Every area is reset in the live state as well as on disk. Clearing the
+   * stored key alone would leave the old roster on screen until a reload,
+   * which is indistinguishable from a reset that silently failed.
+   */
+  const resetAreas = useCallback((ids: ResetAreaId[]) => {
+    applyReset(ids, {
+      hands: tracker.reset,
+      drill: drill.reset,
+      coachScore: coach.reset,
+      roster: (next) => {
+        setRoster(next)
+        // The old line-up's stacks mean nothing once the seats change.
+        game.restart({ ...prefs, opponents: seatedPersonas(next) })
+        coachGame.restart({ ...prefs, opponents: seatedPersonas(next) })
+      },
+      voices: setVoices,
+      handNames: setHandNames,
+      tables: () => {
+        saveTableSnapshot('table', null, profileId)
+        saveTableSnapshot('coach', null, profileId)
+        game.restart({ ...prefs, opponents })
+        coachGame.restart({ ...prefs, opponents })
+      },
+      book: () => setBook({ version: 1, nights: [] }),
+    })
+  }, [
+    tracker.reset, drill.reset, coach.reset, setRoster, setVoices, setHandNames,
+    setBook, game, coachGame, prefs, opponents, profileId,
+  ])
 
   /** Seat changes need a fresh deal; stacks from the old line-up mean nothing. */
   const reseat = useCallback(() => {
@@ -201,6 +365,20 @@ export default function App() {
     if (result !== 'cancelled') setOfferBackup(false)
   }, [book])
 
+  // Nothing renders until somebody has been chosen. A history has to belong to
+  // a person from its first hand; a "we will sort it out later" mode would
+  // just be the record-contamination problem with extra steps.
+  if (!player) {
+    return (
+      <PlayerPicker
+        profiles={profiles}
+        onPick={choosePlayer}
+        onGuest={() => choosePlayer(guestProfile())}
+        onCreate={choosePlayer}
+      />
+    )
+  }
+
   return (
     <div className="app">
       {update.ready && (
@@ -221,10 +399,37 @@ export default function App() {
             </button>
           ))}
         </div>
+        <button
+          className={`btn small ghost whoami ${guest ? 'guest' : ''}`}
+          onClick={() => setSwitching(true)}
+          aria-label="Change player"
+        >
+          <span
+            className="playerchip-face tiny"
+            style={{ borderColor: player.colour, color: player.colour }}
+          >
+            {initialsFor(player)}
+          </span>
+          <span className="whoami-name">{displayName(player)}</span>
+        </button>
         <button className="btn small ghost" onClick={() => setShowSettings(true)} aria-label="Settings">
           ⚙
         </button>
       </header>
+
+      {guest && (
+        <div className="guestbar">
+          <b>Guest</b>
+          <span>
+            Nothing played now is recorded anywhere — not to you and not to
+            anyone else on this device.
+          </span>
+          <span className="spacer" />
+          <button className="btn small ghost" onClick={() => setSwitching(true)}>
+            Switch player
+          </button>
+        </div>
+      )}
 
       <main className="screen">
         {tab === 'table' && (
@@ -234,6 +439,7 @@ export default function App() {
             tracker={tracker}
             mode="table"
             guardOptions={guardOptions}
+            handNames={handNames}
           />
         )}
         {tab === 'coach' && (
@@ -252,23 +458,57 @@ export default function App() {
               >
                 Fresh table
               </button>
+              <LayerPicker
+                layers={activeLayers}
+                onChange={setLayers}
+                totals={tracker.totals}
+              />
+              <VoicePicker voices={voices} onChange={setVoices} />
               <button className="btn small ghost" onClick={() => setShowCoachStats(true)}>
                 Your stats
               </button>
             </div>
+            {nextLayer && (
+              <div className="layer-offer">
+                <b>Ready for more?</b>
+                <span>{nextLayer.because}</span>
+                <span className="spacer" />
+                <button
+                  className="btn small"
+                  onClick={() => setLayers([...activeLayers, nextLayer.layer.id])}
+                >
+                  Turn on {nextLayer.layer.name}
+                </button>
+                <button
+                  className="btn small ghost"
+                  onClick={() => setWaved((prev) => [...prev, nextLayer.layer.id])}
+                >
+                  Not yet
+                </button>
+              </div>
+            )}
             <TableView
               game={coachGame}
               onCashOut={() => {}}
               coach={coach}
+              layers={activeLayers}
               tracker={tracker}
               mode="coach"
               narrator={tableNarrator}
               guardOptions={guardOptions}
+              handNames={handNames}
+              voices={voices}
             />
           </>
         )}
         {tab === 'drill' && <DrillView drill={drill} />}
-        {tab === 'stats' && <StatsView tracker={tracker} narrator={reviewNarrator} />}
+        {tab === 'stats' && (
+          <StatsView
+            tracker={tracker}
+            narrator={reviewNarrator}
+            onStartFresh={() => setShowReset(true)}
+          />
+        )}
         {tab === 'players' && (
           <PlayersView roster={roster} setRoster={setRoster} onSeatChange={reseat} />
         )}
@@ -280,7 +520,7 @@ export default function App() {
             onOpenNight={setOpenNightId}
           />
         )}
-        {tab === 'rules' && <RulesView />}
+        {tab === 'rules' && <RulesView handNames={handNames} onHandNames={setHandNames} />}
       </main>
 
       {offerBackup && (
@@ -325,6 +565,46 @@ export default function App() {
         />
       )}
 
+      {switching && (
+        <PlayerPicker
+          title="Who's playing now?"
+          profiles={profiles}
+          onPick={choosePlayer}
+          onGuest={() => choosePlayer(guestProfile())}
+          onCreate={choosePlayer}
+          onEdit={(profile) => { setSwitching(false); setEditingPlayer(profile) }}
+          onClose={() => setSwitching(false)}
+        />
+      )}
+
+      {editingPlayer && (
+        <PlayerForm
+          editing={editingPlayer}
+          onSave={(next) => {
+            setProfiles(profiles.map((p) => (p.id === next.id ? next : p)))
+            if (player.id === next.id) setPlayer(next)
+            setEditingPlayer(null)
+          }}
+          onCancel={() => setEditingPlayer(null)}
+          onDelete={profiles.length > 1 ? () => {
+            const left = profiles.filter((p) => p.id !== editingPlayer.id)
+            setProfiles(left)
+            // Their stored hands go with them. Leaving the records behind
+            // would mean a name reused later inherited a stranger's history.
+            void forgetProfile(editingPlayer.id)
+            setEditingPlayer(null)
+            if (player.id === editingPlayer.id) {
+              setPlayer(null)
+              saveActiveProfile(null)
+            }
+          } : undefined}
+        />
+      )}
+
+      {showReset && (
+        <ResetDialog onApply={resetAreas} onClose={() => setShowReset(false)} />
+      )}
+
       {showCashOut && (
         <CashOutDialog
           game={game}
@@ -349,6 +629,198 @@ export default function App() {
         </div>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Which questions the coach is answering.
+ *
+ * Presented as layers to turn on rather than levels to beat, which is what
+ * stops it being a progress bar you feel behind on. Order is a suggestion, not
+ * a lock: anyone can turn on all four on their first hand, and the reason to
+ * start narrow is written where the choice is made rather than assumed.
+ *
+ * Each row shows how the record looks for that layer, so the state of the
+ * thing is visible whether or not the app happens to be suggesting it.
+ */
+function LayerPicker({
+  layers, onChange, totals,
+}: {
+  layers: readonly LayerId[]
+  onChange: (layers: LayerId[]) => void
+  totals: PlayerTotals
+}) {
+  const [open, setOpen] = useState(false)
+  const on = (id: LayerId) => layers.includes(id)
+
+  const toggle = (id: LayerId) => {
+    onChange(on(id) ? layers.filter((l) => l !== id) : [...layers, id])
+  }
+
+  return (
+    <>
+      <button className="btn small ghost" onClick={() => setOpen(true)}>
+        {layers.length === LAYERS.length
+          ? 'All layers'
+          : `${layers.length} of ${LAYERS.length} layers`}
+      </button>
+
+      {open && (
+        <div className="overlay" onClick={() => setOpen(false)}>
+          <div className="dialog wide" onClick={(e) => e.stopPropagation()}>
+            <h2>What the coach shows</h2>
+            <p className="sub">
+              Everything at once is a dashboard, not a lesson. Turn on one
+              question at a time and the answer to it is the only thing on
+              screen — or turn them all on, if what you want is the dashboard.
+            </p>
+
+            <div className="resetlist">
+              {LAYERS.map((l) => {
+                const progress = layerProgress(totals, l.id)
+                return (
+                  <label key={l.id} className={`resetrow ${on(l.id) ? 'on' : ''}`}>
+                    <input type="checkbox" checked={on(l.id)} onChange={() => toggle(l.id)} />
+                    <div>
+                      <div className="resetlabel">
+                        {l.name}
+                        {progress.settled && <span className="tag gold">Settled</span>}
+                      </div>
+                      <div className="sub"><i>{l.question}</i> {l.shows}</div>
+                      <div className="sub faint" style={{ marginTop: 3 }}>
+                        {!progress.measurable
+                          ? 'Nothing in your record can tell you when you have got the hang of this one.'
+                          : progress.rate === null
+                            ? `${progress.decisions} decisions so far — not enough to say yet.`
+                            : `${progress.slips} slip${progress.slips === 1 ? '' : 's'} `
+                              + `in ${progress.decisions} decisions.`}
+                      </div>
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
+
+            <div className="row" style={{ gap: 8, marginTop: 10 }}>
+              <button className="btn primary" onClick={() => setOpen(false)}>Done</button>
+              <button
+                className="btn small ghost"
+                onClick={() => onChange(allLayers())}
+                disabled={layers.length === LAYERS.length}
+              >
+                Show everything
+              </button>
+              <button
+                className="btn small ghost"
+                onClick={() => onChange([...STARTING_LAYERS])}
+                disabled={layers.length === STARTING_LAYERS.length && on('price')}
+              >
+                Back to the price
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Who is coaching, and whether anyone is arguing with them.
+ *
+ * Names are editable because these are this table's characters, not fixed
+ * personalities — the same reasoning as the hand names.
+ */
+function VoicePicker({
+  voices, onChange,
+}: {
+  voices: VoiceSettings
+  onChange: (voices: VoiceSettings) => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <>
+      <button className="btn small ghost" onClick={() => setOpen(true)}>
+        {voiceName(voice(voices.primary), voices.names)}
+        {voices.second && ` + ${voiceName(voice(voices.second), voices.names)}`}
+      </button>
+
+      {open && (
+        <div className="overlay" onClick={() => setOpen(false)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>Who is coaching?</h2>
+            <p className="sub">
+              Invented characters with real playing styles. A style is just a
+              description of poker and belongs to nobody; the people are made up.
+              Rename them to whatever your table calls them.
+            </p>
+
+            {VOICES.map((v) => (
+              <div className="field" key={v.id}>
+                <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  <input
+                    style={{ flex: '1 1 140px' }}
+                    value={voices.names[v.id] ?? v.name}
+                    maxLength={30}
+                    onChange={(e) => onChange({
+                      ...voices,
+                      names: { ...voices.names, [v.id]: e.target.value },
+                    })}
+                  />
+                  <button
+                    className={`btn small ${voices.primary === v.id ? '' : 'ghost'}`}
+                    onClick={() => onChange({
+                      ...voices,
+                      primary: v.id,
+                      // Nobody argues with themselves.
+                      second: voices.second === v.id ? null : voices.second,
+                    })}
+                  >
+                    Coach
+                  </button>
+                  <button
+                    className={`btn small ${voices.second === v.id ? '' : 'ghost'}`}
+                    disabled={voices.primary === v.id}
+                    onClick={() => onChange({
+                      ...voices,
+                      second: voices.second === v.id ? null : v.id,
+                    })}
+                  >
+                    2nd
+                  </button>
+                </div>
+                <p className="sub" style={{ marginTop: 4 }}>{v.blurb}</p>
+              </div>
+            ))}
+
+            <p className="sub">
+              A second opinion shows beside the first. They agree most of the
+              time; the spots where they do not are the ones worth thinking about.
+            </p>
+            <div className="row" style={{ gap: 8 }}>
+              <button className="btn primary" onClick={() => setOpen(false)}>Done</button>
+              {/*
+                Right here rather than only in Start Fresh: a rename is undone
+                from where it was made, and knowing that is what makes trying
+                one feel free.
+              */}
+              <button
+                className="btn small ghost"
+                disabled={Object.keys(voices.names).length === 0}
+                onClick={() => onChange({ ...voices, names: {} })}
+              >
+                Original names
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

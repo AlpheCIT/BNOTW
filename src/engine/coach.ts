@@ -12,7 +12,9 @@ import { makeDeck, rankLabel } from './cards'
 import { CATEGORY_NAMES, describeHand, evaluate, HandCategory, type HandValue } from './handEval'
 import { BIG_BLIND, money } from './bnotw'
 import { chenScore } from './ai'
+import { isLate, positionLabelFor, positionOf } from './position'
 import { bestHand, legalActions, livePlayers, potTotal, type LegalActions } from './hand'
+import { voice, type CoachVoice } from './voices'
 import type { Action, ActionKind, HandState, Seat, Street } from './types'
 
 // ---------------------------------------------------------------------------
@@ -491,6 +493,8 @@ export function advise(
   seat: number,
   rng: Rng,
   trials = 2200,
+  /** Whose read this is. Omitted, it is the house's — the straight numbers. */
+  speaker: CoachVoice = voice('house'),
 ): CoachAdvice {
   const player = state.players[seat]
   const legal = legalActions(state, seats, seat)
@@ -508,8 +512,8 @@ export function advise(
   const callEV = toCall > 0 ? equity.equity * pot - (1 - equity.equity) * toCall : 0
 
   const recommendation = state.board.length === 0
-    ? preflopAdvice(state, legal, starting, seat, pot, toCall, breakEven, equity.equity)
-    : postflopAdvice(legal, made, outs, equity.equity, breakEven, callEV, pot, opponents)
+    ? preflopAdvice(state, legal, starting, seat, pot, toCall, breakEven, equity.equity, speaker)
+    : postflopAdvice(legal, made, outs, equity.equity, breakEven, callEV, pot, opponents, speaker)
 
   return {
     street: state.street,
@@ -535,15 +539,9 @@ export function advise(
 }
 
 /** Includes the preposition, so it reads properly in a sentence. */
+/** Kept as a local name; the logic lives in `position.ts` now. */
 function positionName(state: HandState, seat: number): string {
-  const i = state.order.indexOf(seat)
-  const n = state.order.length
-  if (i === n - 1) return 'on the button'
-  if (i === n - 2) return 'in the cut-off'
-  if (seat === state.smallBlindSeat) return 'in the small blind'
-  if (seat === state.bigBlindSeat) return 'in the big blind'
-  if (i <= Math.floor(n / 3)) return 'in early position'
-  return 'in middle position'
+  return positionLabelFor(state, seat)
 }
 
 function preflopAdvice(
@@ -555,26 +553,44 @@ function preflopAdvice(
   toCall: number,
   breakEven: number,
   equity: number,
+  speaker: CoachVoice,
 ): Recommendation {
   const where = positionName(state, seat)
-  const late = where === 'on the button' || where === 'in the cut-off'
+  const seatPosition = positionOf(state, seat)
+  const late = isLate(seatPosition)
   const forced = Math.max(BIG_BLIND, ...state.straddles.map((s) => s.amount))
   const raised = state.currentBet > forced
+  /*
+   * The grade leads and the number supports it, rather than the other way
+   * around. "Scores 10 on the Chen scale" was the first thing said on every
+   * pre-flop hand, which put a piece of jargon nobody had introduced at the
+   * top of the argument — and made a pre-flop shorthand read like the whole
+   * case. The information is identical; the emphasis is not.
+   */
   const reasons: string[] = [
-    `${starting.label} scores ${starting.chen} on the Chen scale — ${starting.grade.toLowerCase()}.`,
+    `${starting.label} is a ${starting.grade.toLowerCase()} starting hand (Chen ${starting.chen}).`,
     `You are ${where}.`,
   ]
   if (state.straddles.length > 0) {
     reasons.push(`A straddle makes this a ${money(forced)} game for this hand, so everything is priced off that.`)
   }
 
-  // Position is worth about two Chen points.
-  const need = (raised ? 10 : 6.5) - (late ? 2 : 0) + (where === 'in early position' ? 1 : 0)
+  /*
+   * Position is worth about two Chen points, and the coach's own taste is
+   * worth a couple more either way. This is where two voices genuinely part
+   * company: the same hand in the same seat is a call to one and a fold to
+   * another, and that disagreement is the thing worth showing.
+   */
+  const need = (raised ? 10 : 6.5)
+    - (late ? 2 : 0)
+    + (seatPosition === 'ep' ? 1 : 0)
+    + speaker.entryShift
 
   if (legal.canCheck) {
     if (starting.chen >= need + 4 && legal.canBet) {
       const amount = Math.min(legal.maxRaiseTo, Math.max(legal.minRaiseTo, state.currentBet * 3))
       reasons.push('Nobody has raised and this hand is too good to let everyone in cheaply.')
+      reasons.push(speaker.says.aggressive)
       return { action: 'bet', amount, headline: `Raise to ${money(amount)}`, reasons, confidence: 'clear' }
     }
     reasons.push('Checking is free and this hand does not want to build a pot yet.')
@@ -584,6 +600,7 @@ function preflopAdvice(
   if (starting.chen >= need + 5 && legal.canRaise) {
     const amount = Math.min(legal.maxRaiseTo, Math.max(legal.minRaiseTo, state.currentBet * 3))
     reasons.push('Strong enough to raise for value rather than flat call.')
+    reasons.push(speaker.says.aggressive)
     return { action: 'raise', amount, headline: `Raise to ${money(amount)}`, reasons, confidence: 'clear' }
   }
 
@@ -593,6 +610,7 @@ function preflopAdvice(
       'right now — but a hand like this is played for what it can make after the flop, ' +
       'not for its share of the pot this second.',
     )
+    reasons.push(speaker.says.loose)
     return {
       action: 'call',
       headline: `Call ${money(toCall)}`,
@@ -611,6 +629,7 @@ function preflopAdvice(
       'this one after the flop. Folding now costs nothing.',
     )
   }
+  reasons.push(speaker.says.tight)
   return { action: 'fold', headline: 'Fold', reasons, confidence: starting.chen > need - 1.5 ? 'close' : 'clear' }
 }
 
@@ -623,6 +642,7 @@ function postflopAdvice(
   callEV: number,
   pot: number,
   opponents: number,
+  speaker: CoachVoice,
 ): Recommendation {
   const reasons: string[] = []
   if (made) reasons.push(`You have ${describeHand(made)}.`)
@@ -639,10 +659,15 @@ function postflopAdvice(
 
   // --- checked to us -------------------------------------------------------
   if (legal.canCheck) {
-    const valueBar = 0.5 + 0.06 * Math.min(opponents, 4)
+    // An aggressive voice bets thinner and bigger; a patient one waits for more.
+    const valueBar = 0.5 + 0.06 * Math.min(opponents, 4) - (speaker.aggression - 0.5) * 0.12
     if (equity > valueBar && legal.canBet) {
-      const amount = Math.min(legal.maxRaiseTo, Math.max(legal.minRaiseTo, Math.round(pot * 0.6)))
+      const amount = Math.min(
+        legal.maxRaiseTo,
+        Math.max(legal.minRaiseTo, Math.round(pot * speaker.sizing)),
+      )
       reasons.push(`Ahead of this many players, so bet for value — about ${money(amount)} into ${money(pot)}.`)
+      reasons.push(speaker.says.aggressive)
       return { action: 'bet', amount, headline: `Bet ${money(amount)}`, reasons, confidence: 'clear' }
     }
     if (bigDraw && opponents <= 2 && legal.canBet) {
@@ -651,6 +676,7 @@ function postflopAdvice(
       return { action: 'bet', amount, headline: `Bet ${money(amount)}`, reasons, confidence: 'close' }
     }
     reasons.push('Not enough to bet for value and not enough of a draw to bluff. Take the free card.')
+    reasons.push(speaker.says.passive)
     return { action: 'check', headline: 'Check', reasons, confidence: 'clear' }
   }
 
@@ -668,8 +694,12 @@ function postflopAdvice(
   const margin = equity - breakEven
 
   if (equity > 0.72 && legal.canRaise && strong) {
-    const amount = Math.min(legal.maxRaiseTo, Math.max(legal.minRaiseTo, Math.round(pot * 0.75)))
+    const amount = Math.min(
+      legal.maxRaiseTo,
+      Math.max(legal.minRaiseTo, Math.round(pot * Math.max(0.6, speaker.sizing))),
+    )
     reasons.push('Well ahead — raise and charge the draws rather than just calling.')
+    reasons.push(speaker.says.aggressive)
     return { action: 'raise', amount, headline: `Raise to ${money(amount)}`, reasons, confidence: 'clear' }
   }
 
@@ -715,11 +745,54 @@ function family(kind: Action['kind']): 'passive' | 'aggressive' | 'fold' {
   return 'passive'
 }
 
+/**
+ * How far a bet has to miss the coach's size before it is worth mentioning.
+ *
+ * Wide on purpose. The coach's sizing is a heuristic — three times the bet
+ * pre-flop, a fraction of the pot after it — not a solved number, so treating
+ * every deviation as a mistake would be claiming an accuracy it does not have.
+ * Under half or over double is the range where the size is doing something
+ * different from what the line intended, whoever is right about the exact
+ * figure.
+ */
+const SIZING_TOLERANCE = 2
+
 export function reviewDecision(advice: CoachAdvice, action: Action): DecisionReview {
   const want = advice.recommendation
   const agreed = action.kind === want.action
 
   if (agreed) {
+    /*
+     * Right action, wrong size.
+     *
+     * Until this existed, raising to the minimum when the coach wanted three
+     * times the pot scored as a perfect match — the review only ever compared
+     * the *kind* of action, so the most recognisable thing about how somebody
+     * bets was the one thing that went unmarked.
+     *
+     * It stays `agreed`, because the decision was right and only the size was
+     * not, and it carries no cost: what a different size would have won
+     * depends on what the opponents would have done with it, which the engine
+     * does not know. Counted, named, and honestly unpriced.
+     */
+    const wanted = want.amount ?? 0
+    const put = action.amount ?? 0
+    if (wanted > 0 && put > 0 && (put * SIZING_TOLERANCE < wanted || put > wanted * SIZING_TOLERANCE)) {
+      const bigger = put > wanted
+      return {
+        agreed: true,
+        evLost: 0,
+        leak: 'Bet sizing',
+        message:
+          `${want.headline} was right, but ${money(put)} is ${bigger ? 'far more' : 'far less'} ` +
+          `than the ${money(wanted)} the line was built on — ` +
+          (bigger
+            ? 'a bet that big only gets called by hands that beat you.'
+            : 'a bet that small gives the field a price to draw at.'),
+        tone: 'off',
+      }
+    }
+
     return {
       agreed: true,
       evLost: 0,

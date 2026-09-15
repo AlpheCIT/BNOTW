@@ -602,8 +602,12 @@ p.sub {
 }
 
 .btn.fold { background: #4a2320; border-color: #6b332e; }
+/* Check and Call land in the same slot, one after the other, and one of them
+   costs money. They were the same colour, which is how you tap Call meaning
+   Check. Green reads free; steel reads "this is a bet". */
 .btn.check { background: #1d3a2c; border-color: #2c5741; }
-.btn.call { background: #1d3a2c; border-color: #2c5741; }
+.btn.call { background: #17303f; border-color: #2f5a72; color: #cfe8f5; }
+.btn.call small { color: #eaf6fc; font-weight: 700; opacity: 1; }
 .btn.raise { background: #7a5411; border-color: var(--brass); color: #ffeec9; }
 
 .raise-panel {
@@ -1150,6 +1154,25 @@ table.grid tr.winner td { background: rgba(95, 208, 138, 0.08); }
 
 .xray-row { display: flex; gap: 8px; align-items: center; font-size: 11px; }
 
+/* A second coach's read, beside the first. Agreement is reassuring; the
+   disagreement is the part worth reading, so it is the one that stands out. */
+.second-read {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.second-read.agrees { background: #12281e; border-color: #2c5741; color: #a8e6c0; }
+.second-read.differs { background: #1c2436; border-color: #3b4a6b; color: #cfd8f0; }
+.second-read b { font-size: 12.5px; }
+.second-read p { flex: 1 1 100%; margin: 2px 0 0; opacity: 0.9; line-height: 1.5; }
+
 /* The "where does my history live" explainer: folded away by default, because
    most people need it exactly once. */
 .yourdata-toggle {
@@ -1602,3 +1625,472 @@ table.grid tr.clickable:hover { background: #1b2b24; }
   margin: 0;
   line-height: 1.5;
 }
+
+/* --- starting fresh ------------------------------------------------------ */
+
+.dialog.wide { width: min(560px, 100%); }
+
+.resetlist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 4px;
+}
+
+/*
+ * A whole row is the target, not the checkbox. These are read-then-decide
+ * choices on a touchscreen, and a 13px box is not something to ask anyone to
+ * hit accurately when the cost of missing is deleting the wrong thing.
+ */
+.resetrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  cursor: pointer;
+}
+
+.resetrow:hover { border-color: var(--panel-3); }
+.resetrow.on { border-color: var(--brass); background: var(--panel-3); }
+.resetrow input { margin-top: 2px; flex: none; }
+.resetrow .sub { margin: 2px 0 0; }
+
+.resetlabel {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.tag.money { color: var(--loss); }
+
+/* Chosen for removal, so it reads as marked rather than merely hovered. */
+table.grid tr.chosen { background: #3a1f1d; }
+table.grid tr.chosen:hover { background: #4a2724; }
+
+.row.picking {
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 2px;
+}
+
+.row.picking .sub { margin: 0; }
+
+/* --- the coach column ----------------------------------------------------- */
+
+/*
+ * The read, plus whatever the finished hand has to add underneath it.
+ *
+ * The scrolling moved out here when the what-if panel arrived: with two
+ * stacked panels each scrolling itself, the thing you wanted to read was
+ * always the one below the fold of the one above it.
+ */
+.coach-column {
+  flex: 0 0 auto;
+  max-height: 46vh;
+  overflow-y: auto;
+  background: #0b1418;
+  border-top: 1px solid #1d3b46;
+}
+
+.coach-column .coach {
+  max-height: none;
+  overflow: visible;
+  border-top: none;
+  border-left: none;
+  width: auto;
+  flex: 1 1 auto;
+}
+
+@media (min-width: 940px) {
+  .table-body.with-coach .coach-column {
+    width: 380px;
+    flex: 0 0 380px;
+    max-height: none;
+    border-top: none;
+    border-left: 1px solid #1d3b46;
+  }
+}
+
+/* --- had you stayed ------------------------------------------------------- */
+
+.whatif {
+  padding: 10px 12px 12px;
+  border-top: 1px solid #1d3b46;
+}
+
+.whatif h3 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #6fd3e8;
+}
+
+/*
+ * Deliberately not green-for-hit, red-for-miss.
+ *
+ * Colouring "you would have won" as a success is the whole failure mode this
+ * panel is trying to avoid — a fold that would have won is usually still the
+ * right fold. The tint marks which case it is without scoring it.
+ */
+.whatif.hit { background: #14201c; }
+.whatif.missed { background: #1a1618; }
+
+.whatif-equity {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  color: var(--ink-dim);
+}
+
+.whatif-equity b { color: var(--brass); font-variant-numeric: tabular-nums; }
+
+.whatif-cards {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.whatif-cards .faint { font-size: 11px; margin: 0 2px; }
+
+.whatif-made {
+  margin: 0 0 6px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.whatif-made b { color: var(--ink); }
+
+.whatif-showdown {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin-bottom: 4px;
+}
+
+.whatif-showdown .won { color: var(--ink-dim); }
+.whatif-showdown .won::after { content: ' — took it'; color: var(--brass); }
+
+.whatif-caveat {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.3);
+  border-left: 2px solid var(--brass);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+}
+
+/* --- the coaching layers -------------------------------------------------- */
+
+/*
+ * Chen, ranked below the numbers that outrank it.
+ *
+ * It used to sit in a grid cell the same size as equity, which read as an
+ * equal authority on a decision it knows far less about. One line, under the
+ * grid, with the explanation a tap away.
+ */
+.chenline {
+  padding: 8px 10px;
+  margin-bottom: 9px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.chenline > .row { gap: 6px; }
+.chenline b { font-variant-numeric: tabular-nums; }
+.chenline .faint { font-size: 11px; }
+
+.chen-grade {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+.chen-grade.g-premium { color: var(--brass-bright); }
+.chen-grade.g-strong { color: var(--win); }
+.chen-grade.g-playable { color: #6fd3e8; }
+.chen-grade.g-marginal { color: var(--ink-dim); }
+.chen-grade.g-trash { color: var(--loss); }
+
+.chen-explain {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+}
+
+.chen-explain p { margin: 0 0 7px; }
+.chen-explain p:last-child { margin-bottom: 0; }
+.chen-explain b { color: var(--ink); }
+
+.btn.tiny {
+  padding: 2px 7px;
+  font-size: 10px;
+  min-height: 0;
+}
+
+/* A layer's own panel: the player reads, the table notes. */
+.layer-panel {
+  padding: 9px 10px;
+  margin-bottom: 9px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.03);
+  border-left: 2px solid #1d3b46;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.layer-panel h4 {
+  margin: 0 0 6px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.layer-panel p { margin: 0 0 6px; color: var(--ink-dim); }
+.layer-panel p:last-child { margin-bottom: 0; }
+.layer-panel b { color: var(--ink); }
+
+.reads { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+
+.read-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.read-name { flex: 1 1 auto; color: var(--ink); font-variant-numeric: normal; }
+
+/* The nudge towards the next layer. Never more than one at a time. */
+.layer-offer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  background: #13252b;
+  border-bottom: 1px solid #1d3b46;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+}
+
+.layer-offer b { color: #6fd3e8; letter-spacing: 0.04em; }
+
+/* --- who's playing -------------------------------------------------------- */
+
+/*
+ * The picker covers the app rather than floating over it. There is nothing
+ * behind it worth seeing before somebody has been chosen, and a translucent
+ * overlay would show one player's stacks under another player's name.
+ */
+.overlay.solid { background: var(--felt-edge); }
+
+.playergrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(116px, 1fr));
+  gap: 10px;
+  margin: 14px 0 4px;
+}
+
+.playerchip-wrap { position: relative; }
+
+.playerchip {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  padding: 14px 8px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  /* Comfortably past a fingertip: this is the one control everybody uses. */
+  min-height: 112px;
+}
+
+.playerchip:hover { border-color: var(--brass); background: var(--panel-3); }
+.playerchip b { font-size: 13px; }
+.playerchip.add { border-style: dashed; color: var(--ink-faint); }
+
+.playerchip-face {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 2px solid var(--ink-faint);
+  color: var(--ink-faint);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  background: rgba(0, 0, 0, 0.25);
+  flex: none;
+}
+
+.playerchip-face.tiny {
+  width: 22px;
+  height: 22px;
+  border-width: 1.5px;
+  font-size: 9px;
+}
+
+.playerchip-edit {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  padding: 2px 7px;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.playerchip-edit:hover { color: var(--ink); border-color: var(--brass); }
+
+.swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.swatch.on { border-color: var(--ink); }
+
+/* Who the app thinks you are, in the header, next to the settings cog. */
+.whoami {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.whoami-name {
+  max-width: 88px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.whoami.guest { border-color: var(--ink-faint); }
+
+/*
+ * A guest session has to look like one the whole time it lasts. The failure
+ * mode is somebody playing an hour believing it counted.
+ */
+.guestbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 7px 12px;
+  background: #2a2520;
+  border-bottom: 1px solid #4a3f33;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+}
+
+.guestbar b {
+  color: var(--brass);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+/* --- grades and leaks ----------------------------------------------------- */
+
+.grade {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  border: 1px solid currentColor;
+  font-weight: 800;
+  font-size: 11px;
+}
+
+.grade.g-a { color: var(--win); }
+.grade.g-b { color: #9ed8a8; }
+.grade.g-c { color: var(--brass); }
+.grade.g-d { color: var(--bomb); }
+.grade.g-f { color: var(--loss); }
+
+.leaklist { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+
+.leakrow { display: flex; gap: 10px; align-items: flex-start; }
+
+.leakrank {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel-3);
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.leakbody { flex: 1 1 auto; min-width: 0; }
+
+.leakhead {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.leakbody .sub { margin: 2px 0 0; }
+
+/* Share of everything measurably given up. Only drawn for priced leaks, so an
+   unpriced one is never shown as a bar of length zero. */
+.leakbar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.leakbar i { display: block; height: 100%; background: var(--loss); }
+
+.tag.sev-minor { color: var(--ink-faint); }
+.tag.sev-moderate { color: var(--bomb); }
+.tag.sev-major { color: var(--loss); }
+
+.summary-cell.good b { color: var(--win); }
+.summary-cell.bad b { color: var(--loss); }

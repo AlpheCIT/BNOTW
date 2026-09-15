@@ -1,10 +1,17 @@
+import { useMemo, useState } from 'react'
 import {
   BIG_BLIND, BUY_IN_CASH, BUY_IN_CHIPS, CHIP_SET, HOUSE_CUT_PER_BUY_IN,
   NAMED_BETS, SMALL_BLIND, money,
 } from '../engine/bnotw'
+import { allHandNames, type CustomHandNames } from '../engine/handNames'
 import { Chip } from './pieces'
 
-export function RulesView() {
+export function RulesView({
+  handNames = {}, onHandNames,
+}: {
+  handNames?: CustomHandNames
+  onHandNames?: (names: CustomHandNames) => void
+} = {}) {
   const chipTotal = CHIP_SET.reduce((sum, c) => sum + c.value * c.quantity, 0)
   const chipCount = CHIP_SET.reduce((sum, c) => sum + c.quantity, 0)
 
@@ -190,6 +197,119 @@ export function RulesView() {
           Win big. Pay the house. Write the recap.
         </p>
       </div>
+
+      {onHandNames && <HandNameEditor names={handNames} onChange={onHandNames} />}
     </div>
   )
 }
+
+/**
+ * What this table calls its hands.
+ *
+ * Lives here rather than in Settings because it is house flavour, the same as
+ * the named bets — and like the named bets, the ones that matter are the ones
+ * this table invented. The shipped list is a starting point that can be
+ * renamed, extended or emptied.
+ */
+function HandNameEditor({
+  names, onChange,
+}: {
+  names: CustomHandNames
+  onChange: (names: CustomHandNames) => void
+}) {
+  const [key, setKey] = useState('')
+  const [label, setLabel] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const list = useMemo(() => allHandNames(names), [names])
+
+  const add = () => {
+    const cleaned = key.trim().replace(/\s+/g, '')
+    if (!VALID_KEY.test(cleaned)) {
+      setError('Write the hand like AKs, AKo or QQ — high card first.')
+      return
+    }
+    if (!label.trim()) {
+      setError('Give it a name.')
+      return
+    }
+    const canonical = cleaned[0].toUpperCase() + cleaned[1].toUpperCase() + (cleaned[2]?.toLowerCase() ?? '')
+    onChange({ ...names, [canonical]: label.trim() })
+    setKey('')
+    setLabel('')
+    setError(null)
+  }
+
+  return (
+    <div className="panel">
+      <h2>Hand Names</h2>
+      <p className="sub">
+        What the table shouts when the cards come out. Shown under your hole
+        cards before the flop. The list below ships with the app — rename
+        anything, clear anything you never say, and add your own.
+      </p>
+
+      <div className="row" style={{ gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div className="field" style={{ marginBottom: 0, flex: '0 0 110px' }}>
+          <label htmlFor="handkey">Hand</label>
+          <input
+            id="handkey"
+            value={key}
+            placeholder="J6o"
+            maxLength={3}
+            spellCheck={false}
+            onChange={(e) => setKey(e.target.value)}
+          />
+        </div>
+        <div className="field" style={{ marginBottom: 0, flex: '1 1 180px' }}>
+          <label htmlFor="handlabel">Called</label>
+          <input
+            id="handlabel"
+            value={label}
+            placeholder="Insurrection"
+            maxLength={40}
+            onChange={(e) => setLabel(e.target.value)}
+          />
+        </div>
+        <button className="btn small" onClick={add}>Add</button>
+      </div>
+      {error && <div className="warn bad" style={{ marginTop: 8 }}>{error}</div>}
+
+      <div className="tablewrap" style={{ marginTop: 12 }}>
+        <table className="grid">
+          <thead><tr><th>Hand</th><th>Called</th><th /></tr></thead>
+          <tbody>
+            {list.map((entry) => (
+              <tr key={entry.key}>
+                <td className="num">{entry.key}</td>
+                <td>
+                  <input
+                    className="cell-input"
+                    style={{ width: '100%' }}
+                    value={entry.name}
+                    maxLength={40}
+                    onChange={(e) => onChange({ ...names, [entry.key]: e.target.value })}
+                  />
+                </td>
+                <td>
+                  <button
+                    className="btn small ghost"
+                    title="Stop showing this one"
+                    /* Cleared rather than deleted: an empty entry is what hides
+                       a shipped name, and deleting the key would simply bring
+                       the shipped one back. */
+                    onClick={() => onChange({ ...names, [entry.key]: '' })}
+                  >
+                    Clear
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+/** AKs, AKo, QQ — two ranks and an optional suitedness. */
+const VALID_KEY = /^[2-9TJQKA][2-9TJQKA][so]?$/i

@@ -29,6 +29,18 @@ export interface Tendencies {
   gamble: number
   /** How often they put out a straddle. */
   straddle: number
+  /**
+   * How big they bet, as distinct from how often.
+   *
+   * Aggression already says how readily somebody fires; this says what lands
+   * when they do. They are genuinely different players: the one who bets a
+   * third of the pot at everything and the one who bets the pot twice a night
+   * can share an aggression score and be nothing alike at the table, and the
+   * bet size is usually the thing people actually remember about them.
+   *
+   * 50 is the ordinary line. Below it is small-ball, above it overbets.
+   */
+  betSizing: number
 }
 
 /** 1 is a genuine beginner, 5 is the person you do not want to play. */
@@ -56,43 +68,46 @@ export interface Archetype {
 const t = (
   looseness: number, aggression: number, bluffing: number,
   chasing: number, gamble: number, straddle: number,
-): Tendencies => ({ looseness, aggression, bluffing, chasing, gamble, straddle })
+  // Defaulted so the archetypes below read as they always did; only the ones
+  // whose size is part of their character say otherwise.
+  betSizing = 45,
+): Tendencies => ({ looseness, aggression, bluffing, chasing, gamble, straddle, betSizing })
 
 export const ARCHETYPES: Archetype[] = [
   {
     id: 'nit', name: 'The Nit', skill: 3,
     blurb: 'Folds and folds and folds, then shows you aces.',
-    tendencies: t(12, 30, 3, 15, 15, 0),
+    tendencies: t(12, 30, 3, 15, 15, 0, 40),
   },
   {
     id: 'rock', name: 'The Rock', skill: 3,
     blurb: 'Tight, but bets hard on the rare occasion they are in.',
-    tendencies: t(22, 55, 8, 25, 35, 5),
+    tendencies: t(22, 55, 8, 25, 35, 5, 55),
   },
   {
     id: 'grinder', name: 'The Grinder', skill: 4,
     blurb: 'Patient, positional, quietly takes your money.',
-    tendencies: t(35, 65, 18, 35, 45, 12),
+    tendencies: t(35, 65, 18, 35, 45, 12, 45),
   },
   {
     id: 'shark', name: 'The Shark', skill: 5,
     blurb: 'Reads the board, prices everything, punishes mistakes.',
-    tendencies: t(42, 78, 28, 38, 60, 22),
+    tendencies: t(42, 78, 28, 38, 60, 22, 50),
   },
   {
     id: 'station', name: 'Calling Station', skill: 2,
     blurb: 'Will pay you off. Every single time. Please keep betting.',
-    tendencies: t(65, 22, 6, 88, 45, 8),
+    tendencies: t(65, 22, 6, 88, 45, 8, 35),
   },
   {
     id: 'gambler', name: 'The Gambler', skill: 2,
     blurb: 'Here for a good time. Any two cards can win.',
-    tendencies: t(72, 68, 35, 70, 85, 40),
+    tendencies: t(72, 68, 35, 70, 85, 40, 70),
   },
   {
     id: 'maniac', name: 'The Maniac', skill: 2,
     blurb: 'Raises. Raises again. Never folding, never explaining.',
-    tendencies: t(85, 92, 55, 60, 92, 55),
+    tendencies: t(85, 92, 55, 60, 92, 55, 85),
   },
 ]
 
@@ -218,6 +233,18 @@ export function styleSummary(t: Tendencies): string {
   return `${loose}–${aggro}`
 }
 
+/**
+ * What a tendency is worth when nothing says otherwise.
+ *
+ * Used to fill in dials that a stored persona predates: a missing value would
+ * otherwise read as zero, which is not "unset" but "the most extreme setting
+ * at one end".
+ */
+export const DEFAULT_TENDENCIES: Tendencies = {
+  looseness: 40, aggression: 50, bluffing: 15, chasing: 40, gamble: 40,
+  straddle: 10, betSizing: 45,
+}
+
 export const TENDENCY_META: { key: keyof Tendencies; label: string; low: string; high: string }[] = [
   { key: 'looseness', label: 'Looseness', low: 'Plays few hands', high: 'Plays anything' },
   { key: 'aggression', label: 'Aggression', low: 'Checks and calls', high: 'Bets and raises' },
@@ -225,4 +252,5 @@ export const TENDENCY_META: { key: keyof Tendencies; label: string; low: string;
   { key: 'chasing', label: 'Chasing', low: 'Respects the price', high: 'Chases every draw' },
   { key: 'gamble', label: 'Gamble', low: 'Protects the stack', high: 'Happy to get it in' },
   { key: 'straddle', label: 'Straddle', low: 'Never straddles', high: 'Straddles constantly' },
+  { key: 'betSizing', label: 'Bet size', low: 'Small ball', high: 'Overbets' },
 ]

@@ -17,6 +17,7 @@
  */
 
 import { BIG_BLIND } from './bnotw'
+import { POSITIONS, POSITION_SHORT, storedPosition, type Position } from './position'
 import type { HandReplay } from './replay'
 import type { ActionKind, Street } from './types'
 
@@ -44,6 +45,13 @@ export interface HandRecord {
   mode: PlayMode
   handNumber: number
   bomb: boolean
+  /**
+   * Where you were sitting, as a `Position` code.
+   *
+   * Records written before this said `button` or `other`; `storedPosition`
+   * reads both and reports the second as unknown rather than guessing it into
+   * a bucket it would then distort.
+   */
   position: string
   /** Hole cards as short codes, e.g. "As Kh". */
   hole: string
@@ -73,6 +81,35 @@ export interface HandRecord {
    * the history storable — the counters never depend on it.
    */
   replay?: HandReplay
+}
+
+/**
+ * One position's running counters.
+ *
+ * Kept on the totals rather than computed from the stored hands for the same
+ * reason everything else is: the hand list is a window, the totals are the
+ * record. A positional win rate recomputed from the last 600 hands would
+ * silently change meaning as the history grew.
+ */
+export interface PositionTotals {
+  hands: number
+  net: number
+  /** Sum of squares, for the confidence band — the same maths as `winRate`. */
+  netSq: number
+  /** Non-bomb hands only, since a bomb pot has no pre-flop choice. */
+  preflopHands: number
+  vpip: number
+  pfr: number
+  decisions: number
+  agreed: number
+  evLost: number
+}
+
+export function emptyPositionTotals(): PositionTotals {
+  return {
+    hands: 0, net: 0, netSq: 0, preflopHands: 0,
+    vpip: 0, pfr: 0, decisions: 0, agreed: 0, evLost: 0,
+  }
 }
 
 /**
@@ -110,7 +147,25 @@ export interface PlayerTotals {
   evLost: number
   evLostSq: number
   leaks: Record<string, number>
+  /**
+   * Cents given up per leak, alongside the counts.
+   *
+   * Kept beside `leaks` rather than folded into it, because how often a
+   * mistake happens and what it costs are different facts and only one of them
+   * can be measured for every mistake. Four of the coach's seven leaks carry no
+   * price at all — see `PRICED_LEAKS` — so a report ranked on cost alone would
+   * quietly rank them last. Added rather than replacing the counts, so a
+   * history recorded before this simply has no costs rather than no leaks.
+   */
+  leakCost: Record<string, number>
   byStreet: Record<string, { decisions: number; agreed: number; evLost: number }>
+  /**
+   * Per seat. Absent for a position never played, and absent entirely for
+   * records that predate positions being kept — which is why this is a partial
+   * map rather than one row per position seeded at zero. A row that exists is
+   * a row that happened.
+   */
+  byPosition: Partial<Record<Position, PositionTotals>>
   firstAt: number
   lastAt: number
 }
@@ -144,7 +199,9 @@ export function emptyTotals(): PlayerTotals {
     evLost: 0,
     evLostSq: 0,
     leaks: {},
+    leakCost: {},
     byStreet: {},
+    byPosition: {},
     firstAt: 0,
     lastAt: 0,
   }
@@ -155,8 +212,17 @@ export function accumulate(totals: PlayerTotals, hand: HandRecord): PlayerTotals
     ...totals,
     handsByMode: { ...totals.handsByMode },
     leaks: { ...totals.leaks },
+    leakCost: { ...totals.leakCost },
     byStreet: { ...totals.byStreet },
+    byPosition: { ...totals.byPosition },
   }
+  // Null for a record written before positions were kept. Those hands still
+  // count everywhere else; they simply have no seat to count under.
+  const seat = storedPosition(hand.position)
+  const here = seat
+    ? { ...(next.byPosition[seat] ?? emptyPositionTotals()) }
+    : null
+  if (seat && here) next.byPosition[seat] = here
 
   next.hands += 1
   next.handsByMode[hand.mode] += 1
@@ -165,6 +231,12 @@ export function accumulate(totals: PlayerTotals, hand: HandRecord): PlayerTotals
   if (hand.net > 0) next.handsWon += 1
   if (!next.firstAt) next.firstAt = hand.at
   next.lastAt = hand.at
+
+  if (here) {
+    here.hands += 1
+    here.net += hand.net
+    here.netSq += hand.net * hand.net
+  }
 
   if (hand.bomb) {
     next.bombHands += 1
@@ -175,6 +247,11 @@ export function accumulate(totals: PlayerTotals, hand: HandRecord): PlayerTotals
     if (hand.pfr) next.pfr += 1
     if (hand.facedRaise) next.facedRaise += 1
     if (hand.threeBet) next.threeBet += 1
+    if (here) {
+      here.preflopHands += 1
+      if (hand.vpip) here.vpip += 1
+      if (hand.pfr) here.pfr += 1
+    }
   }
 
   if (hand.sawFlop) next.sawFlop += 1
@@ -192,15 +269,146 @@ export function accumulate(totals: PlayerTotals, hand: HandRecord): PlayerTotals
     if (d.agreed) next.agreed += 1
     next.evLost += d.evLost
     next.evLostSq += d.evLost * d.evLost
-    if (d.leak) next.leaks[d.leak] = (next.leaks[d.leak] ?? 0) + 1
+    if (d.leak) {
+      next.leaks[d.leak] = (next.leaks[d.leak] ?? 0) + 1
+      next.leakCost[d.leak] = (next.leakCost[d.leak] ?? 0) + d.evLost
+    }
     const street = next.byStreet[d.street] ?? { decisions: 0, agreed: 0, evLost: 0 }
     next.byStreet[d.street] = {
       decisions: street.decisions + 1,
       agreed: street.agreed + (d.agreed ? 1 : 0),
       evLost: street.evLost + d.evLost,
     }
+    if (here) {
+      here.decisions += 1
+      if (d.agreed) here.agreed += 1
+      here.evLost += d.evLost
+    }
   }
 
+  return next
+}
+
+/**
+ * Take a hand back out of the totals.
+ *
+ * The exact inverse of `accumulate`, needed because the counters are running
+ * totals rather than something derived from the stored hands: they are kept
+ * that way precisely so that trimming old hands does not change your VPIP, so
+ * deleting a hand has to subtract it rather than recount what is left.
+ *
+ * Two things are deliberately not perfectly reversible:
+ *
+ *   `firstAt` and `lastAt` are a minimum and a maximum, and neither can be
+ *     recovered by subtraction — the new boundary lives in some other hand,
+ *     which may not even be in memory. They are left alone, except when the
+ *     last hand goes and the whole window is meaningless. The window is only
+ *     ever too wide, never too narrow, and it feeds the "playing since" line
+ *     rather than any rate.
+ *
+ *   Every counter is clamped at zero. It should never be reachable — a hand
+ *     can only be removed after it was added — but a record that has been
+ *     through an import, a failed write or an older version of this file is
+ *     not something to trust into showing a negative VPIP.
+ */
+export function unaccumulate(totals: PlayerTotals, hand: HandRecord): PlayerTotals {
+  const next: PlayerTotals = {
+    ...totals,
+    handsByMode: { ...totals.handsByMode },
+    leaks: { ...totals.leaks },
+    leakCost: { ...totals.leakCost },
+    byStreet: { ...totals.byStreet },
+    byPosition: { ...totals.byPosition },
+  }
+  const down = (n: number) => Math.max(0, n - 1)
+  const seat = storedPosition(hand.position)
+  const here = seat && next.byPosition[seat]
+    ? { ...next.byPosition[seat]! }
+    : null
+  if (seat && here) next.byPosition[seat] = here
+
+  next.hands = down(next.hands)
+  next.handsByMode[hand.mode] = down(next.handsByMode[hand.mode])
+  next.net -= hand.net
+  next.netSq = Math.max(0, next.netSq - hand.net * hand.net)
+  if (hand.net > 0) next.handsWon = down(next.handsWon)
+
+  if (here) {
+    here.hands = down(here.hands)
+    here.net -= hand.net
+    here.netSq = Math.max(0, here.netSq - hand.net * hand.net)
+  }
+
+  if (hand.bomb) {
+    next.bombHands = down(next.bombHands)
+    next.bombNet -= hand.net
+  } else {
+    next.preflopHands = down(next.preflopHands)
+    if (hand.vpip) next.vpip = down(next.vpip)
+    if (hand.pfr) next.pfr = down(next.pfr)
+    if (hand.facedRaise) next.facedRaise = down(next.facedRaise)
+    if (hand.threeBet) next.threeBet = down(next.threeBet)
+    if (here) {
+      here.preflopHands = down(here.preflopHands)
+      if (hand.vpip) here.vpip = down(here.vpip)
+      if (hand.pfr) here.pfr = down(here.pfr)
+    }
+  }
+
+  if (hand.sawFlop) next.sawFlop = down(next.sawFlop)
+  if (hand.showdown) next.showdowns = down(next.showdowns)
+  if (hand.wonShowdown) next.showdownWins = down(next.showdownWins)
+  next.aggressive = Math.max(0, next.aggressive - hand.aggressive)
+  next.passive = Math.max(0, next.passive - hand.passive)
+  if (hand.couldStraddle) next.couldStraddle = down(next.couldStraddle)
+  if (hand.straddled) next.straddled = down(next.straddled)
+  if (hand.dexterHeld) next.dexterHeld = down(next.dexterHeld)
+  if (hand.dexterWon) next.dexterWon = down(next.dexterWon)
+
+  for (const d of hand.decisions) {
+    next.decisions = down(next.decisions)
+    if (d.agreed) next.agreed = down(next.agreed)
+    next.evLost = Math.max(0, next.evLost - d.evLost)
+    next.evLostSq = Math.max(0, next.evLostSq - d.evLost * d.evLost)
+    if (d.leak) {
+      const left = (next.leaks[d.leak] ?? 0) - 1
+      // Dropped rather than left at zero: a leak with no instances behind it
+      // would still be listed as something you do.
+      if (left > 0) {
+        next.leaks[d.leak] = left
+        next.leakCost[d.leak] = Math.max(0, (next.leakCost[d.leak] ?? 0) - d.evLost)
+      } else {
+        delete next.leaks[d.leak]
+        delete next.leakCost[d.leak]
+      }
+    }
+    const street = next.byStreet[d.street]
+    if (street) {
+      const left = {
+        decisions: Math.max(0, street.decisions - 1),
+        agreed: Math.max(0, street.agreed - (d.agreed ? 1 : 0)),
+        evLost: Math.max(0, street.evLost - d.evLost),
+      }
+      if (left.decisions > 0) next.byStreet[d.street] = left
+      else delete next.byStreet[d.street]
+    }
+    if (here) {
+      here.decisions = down(here.decisions)
+      if (d.agreed) here.agreed = down(here.agreed)
+      here.evLost = Math.max(0, here.evLost - d.evLost)
+    }
+  }
+
+  // A position with no hands left in it is dropped, so a seat you have not
+  // played does not appear in the table at zero alongside ones you have.
+  if (seat && here && here.hands === 0) delete next.byPosition[seat]
+
+  if (next.hands === 0) {
+    next.firstAt = 0
+    next.lastAt = 0
+    next.byPosition = {}
+    next.leakCost = {}
+  }
   return next
 }
 
@@ -501,4 +709,87 @@ export function winRate(totals: PlayerTotals): WinRate {
   const handsForConfidence = Math.ceil(((1.96 * sd) / targetCents) ** 2)
 
   return { bbPer100, margin, hands: n, net: totals.net, handsForConfidence }
+}
+
+// ---------------------------------------------------------------------------
+// By position
+// ---------------------------------------------------------------------------
+
+export interface PositionRow {
+  position: Position
+  label: string
+  hands: number
+  net: number
+  /** Big blinds per 100 hands from this seat. */
+  bbPer100: number
+  /** Half-width of the 95% band, in bb/100. Infinite below two hands. */
+  margin: number
+  /** Null until there have been enough pre-flop hands to mean anything. */
+  vpip: number | null
+  pfr: number | null
+  /** Share of decisions from here that matched the coach. Null below the bar. */
+  accuracy: number | null
+  /** Cents of expected value given up from this seat. */
+  evLost: number
+  /** Enough hands that the win rate is worth looking at. */
+  meaningful: boolean
+}
+
+/**
+ * How many hands from one seat before its win rate is worth printing.
+ *
+ * Judgement, and a generous one. A positional sample is a fraction of the
+ * whole history, and poker results are noisy enough that even this is mostly
+ * noise — which is what `margin` is there to say out loud.
+ */
+export const POSITION_SAMPLE = 30
+
+/** Below this there is not enough to report a rate at all. */
+const RATE_SAMPLE = 12
+
+/**
+ * Your results and your play, seat by seat.
+ *
+ * Rows come back in table order and only for seats actually played. The win
+ * rate carries its own confidence band for the reason the overall one does:
+ * split six ways, a home game's history is nowhere near enough hands to pin a
+ * positional win rate down, and a column of bb/100 figures with no error bars
+ * invites exactly the conclusion the data cannot support. The accuracy column
+ * is the one worth reading first — decision quality settles far sooner than
+ * results do.
+ */
+export function byPosition(totals: PlayerTotals): PositionRow[] {
+  const rows: PositionRow[] = []
+  for (const position of POSITIONS) {
+    const seat = totals.byPosition[position]
+    if (!seat || seat.hands === 0) continue
+
+    const mean = seat.net / seat.hands
+    const variance = Math.max(0, seat.netSq / seat.hands - mean * mean)
+    const margin = seat.hands < 2
+      ? Infinity
+      : ((1.96 * Math.sqrt(variance)) / Math.sqrt(seat.hands) / BIG_BLIND) * 100
+
+    rows.push({
+      position,
+      label: POSITION_SHORT[position],
+      hands: seat.hands,
+      net: seat.net,
+      bbPer100: (seat.net / BIG_BLIND / seat.hands) * 100,
+      margin,
+      vpip: seat.preflopHands >= RATE_SAMPLE ? seat.vpip / seat.preflopHands : null,
+      pfr: seat.preflopHands >= RATE_SAMPLE ? seat.pfr / seat.preflopHands : null,
+      accuracy: seat.decisions >= RATE_SAMPLE ? seat.agreed / seat.decisions : null,
+      evLost: seat.evLost,
+      meaningful: seat.hands >= POSITION_SAMPLE,
+    })
+  }
+  return rows
+}
+
+/** Hands recorded before positions were kept, and so missing from the table. */
+export function handsWithoutPosition(totals: PlayerTotals): number {
+  const placed = Object.values(totals.byPosition)
+    .reduce((sum, seat) => sum + (seat?.hands ?? 0), 0)
+  return Math.max(0, totals.hands - placed)
 }

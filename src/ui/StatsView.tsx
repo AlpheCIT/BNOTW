@@ -11,16 +11,30 @@ import { ReplayView } from './ReplayView'
 import type { NarratorApi } from './useNarrator'
 import type { TrackerApi } from './useTracker'
 
+/** How many of the recent hands the list shows at once. */
+const SHOWN = 40
+
 export function StatsView({
-  tracker, narrator,
+  tracker, narrator, onStartFresh,
 }: {
   tracker: TrackerApi
   /** Optional review service; absent when none is configured. */
   narrator?: NarratorApi
+  /** Opens the wider reset, which reaches things this view does not own. */
+  onStartFresh?: () => void
 }) {
   const { totals } = tracker
   const [confirmReset, setConfirmReset] = useState(false)
   const [replaying, setReplaying] = useState<HandRecord | null>(null)
+  /**
+   * Which hands are marked for deletion, by when they were played.
+   *
+   * Null rather than an empty set when not picking: a row has to behave
+   * differently in the two modes — replay, or select — and "no rows chosen
+   * yet" is not the same state as "not choosing".
+   */
+  const [picked, setPicked] = useState<Set<number> | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   /** The hands that cost the most, worst first — the ones worth looking at. */
   const worst = useMemo(
@@ -31,6 +45,24 @@ export function StatsView({
       .slice(0, 6),
     [tracker.recent],
   )
+
+  const shown = useMemo(() => tracker.recent.slice(0, SHOWN), [tracker.recent])
+
+  const togglePick = (at: number) => {
+    setConfirmDelete(false)
+    setPicked((prev) => {
+      const next = new Set(prev ?? [])
+      if (next.has(at)) next.delete(at)
+      else next.add(at)
+      return next
+    })
+  }
+
+  const doDelete = () => {
+    if (picked && picked.size > 0) tracker.deleteHands([...picked])
+    setPicked(null)
+    setConfirmDelete(false)
+  }
 
   const score = useMemo(() => rating(totals), [totals])
   const results = useMemo(() => winRate(totals), [totals])
@@ -296,21 +328,95 @@ export function StatsView({
           above cover everything ever played, not just these. Older hands keep their
           row but drop the replay, so the history stays storable.
         </p>
+
+        {picked ? (
+          <div className="row picking" style={{ gap: 8, flexWrap: 'wrap' }}>
+            <span className="sub">
+              {picked.size === 0
+                ? 'Tap the hands to remove.'
+                : `${picked.size} hand${picked.size === 1 ? '' : 's'} chosen.`}
+            </span>
+            <button
+              className="btn small ghost"
+              onClick={() => {
+                setConfirmDelete(false)
+                setPicked(new Set(shown.filter((h) => h.mode === 'coach').map((h) => h.at)))
+              }}
+            >
+              All coach hands
+            </button>
+            <button
+              className="btn small ghost"
+              onClick={() => { setConfirmDelete(false); setPicked(new Set(shown.map((h) => h.at))) }}
+            >
+              All {shown.length} shown
+            </button>
+            {confirmDelete ? (
+              <button className="btn small danger" onClick={doDelete}>
+                Yes, remove {picked.size}
+              </button>
+            ) : (
+              <button
+                className="btn small danger"
+                disabled={picked.size === 0}
+                onClick={() => setConfirmDelete(true)}
+              >
+                Remove
+              </button>
+            )}
+            <button
+              className="btn small ghost"
+              onClick={() => { setPicked(null); setConfirmDelete(false) }}
+            >
+              Done
+            </button>
+          </div>
+        ) : (
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn small ghost" onClick={() => setPicked(new Set())}>
+              Remove hands
+            </button>
+            <span className="sub">
+              For hands that were you trying the app out rather than you playing.
+              They come straight back out of your rating.
+            </span>
+          </div>
+        )}
+
         <div className="tablewrap">
           <table className="grid" style={{ minWidth: 520 }}>
             <thead>
               <tr>
+                {picked && <th aria-label="Chosen" />}
                 <th>Hand</th><th>Hole</th><th>Saw flop</th><th>Showdown</th>
                 <th>Decisions</th><th>EV lost</th><th>Net</th><th />
               </tr>
             </thead>
             <tbody>
-              {tracker.recent.slice(0, 40).map((hand, i) => (
+              {shown.map((hand, i) => (
                 <tr
                   key={`${hand.mode}-${hand.handNumber}-${i}`}
-                  className={hand.replay ? 'clickable' : ''}
-                  onClick={() => hand.replay && setReplaying(hand)}
+                  className={
+                    picked
+                      ? `clickable ${picked.has(hand.at) ? 'chosen' : ''}`
+                      : (hand.replay ? 'clickable' : '')
+                  }
+                  onClick={() => {
+                    if (picked) togglePick(hand.at)
+                    else if (hand.replay) setReplaying(hand)
+                  }}
                 >
+                  {picked && (
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={picked.has(hand.at)}
+                        onChange={() => togglePick(hand.at)}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`Remove hand ${hand.handNumber}`}
+                      />
+                    </td>
+                  )}
                   <td>
                     #{hand.handNumber}
                     {hand.bomb && <span className="tag bomb" style={{ marginLeft: 6 }}>Bomb</span>}
@@ -327,7 +433,7 @@ export function StatsView({
                     {money(hand.decisions.reduce((s, d) => s + d.evLost, 0))}
                   </td>
                   <td className={hand.net >= 0 ? 'pos' : 'neg'}>{signedMoney(hand.net)}</td>
-                  <td className="faint">{hand.replay ? '›' : ''}</td>
+                  <td className="faint">{picked ? '' : (hand.replay ? '›' : '')}</td>
                 </tr>
               ))}
             </tbody>
@@ -339,9 +445,10 @@ export function StatsView({
         <h2>Start Over</h2>
         <p className="sub">
           Clears every tracked hand, your tendencies and your rating. The Record
-          Book is separate and is not touched.
+          Book is separate and is not touched. To remove a few hands rather than
+          all of them, use Remove hands above.
         </p>
-        <div className="row">
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           {confirmReset ? (
             <>
               <button className="btn danger" onClick={() => { tracker.reset(); setConfirmReset(false) }}>
@@ -354,7 +461,19 @@ export function StatsView({
               Reset my stats
             </button>
           )}
+          {onStartFresh && (
+            <button className="btn small ghost" onClick={onStartFresh}>
+              Start Fresh…
+            </button>
+          )}
         </div>
+        {onStartFresh && (
+          <p className="sub" style={{ marginTop: 8 }}>
+            Start Fresh reaches further: the players, the coaches and the hand
+            names can all go back to the way they shipped, which is what makes
+            it safe to edit them in the first place.
+          </p>
+        )}
       </div>
 
       {replaying?.replay && (

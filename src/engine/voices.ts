@@ -6,6 +6,21 @@
  * thinking is — and good players genuinely disagree about marginal hands far
  * more than a single confident recommendation suggests.
  *
+ * ### What the defaults are
+ *
+ * Between them the five cover the four corners of how people actually play,
+ * plus a neutral reading:
+ *
+ *   entry ↓   aggression →    low                     high
+ *   loose                     reader (small bets)     gambler (any two cards)
+ *   selective                                         pressure
+ *   tight                     rock
+ *
+ * That spread is the point. Two voices agreeing tells you nothing; a loose
+ * small-ball read and an old-school raise-or-fold read disagreeing on the same
+ * hand is where the thinking is. These are also the numbers "Start Fresh" puts
+ * back, so editing a coach is a safe thing to try.
+ *
  * ### About the names
  *
  * These are invented characters, not portraits. A playing style is not
@@ -14,6 +29,13 @@
  * a thin alias that maps one-to-one onto a real person is that person's name
  * wearing a hat. So the styles here are real and the people are not, and every
  * name can be changed to whatever your table wants to call them.
+ *
+ * The styles are drawn from schools of thought rather than from anyone's
+ * results: the small-ball, read-the-player approach; the selective-aggressive
+ * one; the patient positional one; and the old-school argument — the one
+ * Super/System put in print in 1979 — that position and aggression win more
+ * pots than cards do. None of these numbers is a claim about how any
+ * particular person plays, and none of them was measured from anyone's hands.
  */
 
 export interface CoachVoice {
@@ -104,6 +126,23 @@ export const VOICES: CoachVoice[] = [
       tight: 'Throw it away. Nobody ever went broke folding.',
       aggressive: 'If it is worth playing it is worth betting. Do not creep.',
       passive: 'No need to bloat this. Let them bet into you.',
+    },
+  },
+  {
+    id: 'gambler',
+    name: 'Sonny Bracken',
+    blurb:
+      'Old school in the other direction. Believes the hand you are dealt '
+      + 'matters far less than position, aggression and who you are playing '
+      + 'against — and that a raise wins pots two pair never gets to see.',
+    entryShift: -3.5,
+    aggression: 0.8,
+    sizing: 0.75,
+    says: {
+      loose: 'Any two cards play if you are the one raising. Come in for a raise or not at all.',
+      tight: 'Even I am out of line here. Wait for position and try it again.',
+      aggressive: 'Raise. Folding equity is the only equity you get to keep.',
+      passive: 'Check it back and take a swing at whatever they leave you next street.',
     },
   },
 ]

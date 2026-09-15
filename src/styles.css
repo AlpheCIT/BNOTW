@@ -1625,3 +1625,57 @@ table.grid tr.clickable:hover { background: #1b2b24; }
   margin: 0;
   line-height: 1.5;
 }
+
+/* --- starting fresh ------------------------------------------------------ */
+
+.dialog.wide { width: min(560px, 100%); }
+
+.resetlist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 12px 0 4px;
+}
+
+/*
+ * A whole row is the target, not the checkbox. These are read-then-decide
+ * choices on a touchscreen, and a 13px box is not something to ask anyone to
+ * hit accurately when the cost of missing is deleting the wrong thing.
+ */
+.resetrow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  cursor: pointer;
+}
+
+.resetrow:hover { border-color: var(--panel-3); }
+.resetrow.on { border-color: var(--brass); background: var(--panel-3); }
+.resetrow input { margin-top: 2px; flex: none; }
+.resetrow .sub { margin: 2px 0 0; }
+
+.resetlabel {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.tag.money { color: var(--loss); }
+
+/* Chosen for removal, so it reads as marked rather than merely hovered. */
+table.grid tr.chosen { background: #3a1f1d; }
+table.grid tr.chosen:hover { background: #4a2724; }
+
+.row.picking {
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0 2px;
+}
+
+.row.picking .sub { margin: 0; }

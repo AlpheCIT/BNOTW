@@ -20,15 +20,15 @@ import { reviewDecision, type CoachAdvice } from '../engine/coach'
 import { isDexterHand, livePlayers } from '../engine/hand'
 import { buildReplay } from '../engine/replay'
 import {
-  accumulate, emptyTotals, type DecisionRecord, type HandRecord, type PlayMode,
-  type PlayerTotals,
+  accumulate, emptyTotals, unaccumulate, type DecisionRecord, type HandRecord,
+  type PlayMode, type PlayerTotals,
 } from '../engine/playerStats'
 import type { Table } from '../engine/table'
 import type { Action, HandState } from '../engine/types'
 import { loadPlayerLog, savePlayerLog, type PlayerLog } from '../state/storage'
 import {
-  RECENT_IN_MEMORY, appendHand, countHands, openDb, readRecentHands, readTotals, replaceAll,
-  setNote as setNote_db,
+  RECENT_IN_MEMORY, appendHand, countHands, deleteHands as deleteHands_db, openDb,
+  readRecentHands, readTotals, replaceAll, setNote as setNote_db,
 } from '../state/db'
 
 /**
@@ -88,6 +88,11 @@ export interface TrackerApi {
   recordDecision: (state: HandState, advice: CoachAdvice, action: Action) => void
   /** Call once when a hand finishes. */
   completeHand: (table: Table, mode: PlayMode) => void
+  /**
+   * Erase specific hands, found by when they were played, and take them back
+   * out of the totals. Only hands still held in memory can go this way.
+   */
+  deleteHands: (ats: number[]) => void
   reset: () => void
 }
 
@@ -272,6 +277,33 @@ export function useTracker(): TrackerApi {
     })
   }, [])
 
+  /**
+   * Erase hands you would rather were not part of your record.
+   *
+   * Written for the case that prompted it: a stretch of hands played to try
+   * the app out, sitting in the same history as the hands you meant. Those
+   * hands move your VPIP and your rating exactly as hard as real ones, and
+   * the rating is the number this app exists to make honest.
+   *
+   * Only hands in `recent` can go, which is what the list offers anyway. A
+   * hand older than that is no longer held here to subtract, and guessing at
+   * its contribution would corrupt the totals rather than correct them.
+   */
+  const deleteHands = useCallback((ats: number[]) => {
+    const wanted = new Set(ats)
+    setLog((prev) => {
+      const going = prev.hands.filter((hand) => wanted.has(hand.at))
+      if (going.length === 0) return prev
+      const hands = prev.hands.filter((hand) => !wanted.has(hand.at))
+      const totals = going.reduce((acc, hand) => unaccumulate(acc, hand), prev.totals)
+      const next: PlayerLog = { ...prev, totals, hands }
+      if (!hydrated.current) return next
+      if (usingDb.current) void deleteHands_db(going.map((hand) => hand.at), totals)
+      else savePlayerLog({ ...next, hands: trimForStorage(hands) })
+      return next
+    })
+  }, [])
+
   const reset = useCallback(() => {
     const next: PlayerLog = { version: 1, totals: emptyTotals(), hands: [] }
     completed.current = new WeakSet<HandState>()
@@ -283,5 +315,8 @@ export function useTracker(): TrackerApi {
     setLog(next)
   }, [])
 
-  return { totals: log.totals, recent: log.hands, setNote, recordDecision, completeHand, reset }
+  return {
+    totals: log.totals, recent: log.hands,
+    setNote, recordDecision, completeHand, deleteHands, reset,
+  }
 }

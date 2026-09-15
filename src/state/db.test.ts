@@ -124,6 +124,46 @@ describe('keeping the history', () => {
     expect(await db.readRecentHands()).toEqual([])
   })
 
+  it('deletes the hands asked for and leaves the rest alone', async () => {
+    const db = await freshDb()
+    for (const at of [1, 2, 3, 4, 5]) await db.appendHand(hand(at), totalsWith(at))
+
+    expect(await db.deleteHands([2, 4], totalsWith(3))).toBe(2)
+    expect((await db.readAllHands()).map((h) => h.handNumber)).toEqual([1, 3, 5])
+    // The totals come from the caller, which has already subtracted them.
+    expect((await db.readTotals())?.hands).toBe(3)
+  })
+
+  it('ignores a hand that is not there rather than failing the whole delete', async () => {
+    const db = await freshDb()
+    for (const at of [1, 2, 3]) await db.appendHand(hand(at), totalsWith(at))
+
+    // 99 was trimmed, or never stored. The other two still have to go.
+    expect(await db.deleteHands([1, 99, 3], totalsWith(1))).toBe(2)
+    expect((await db.readAllHands()).map((h) => h.handNumber)).toEqual([2])
+  })
+
+  it('writes no totals for an empty delete', async () => {
+    const db = await freshDb()
+    await db.appendHand(hand(1), totalsWith(1))
+
+    expect(await db.deleteHands([], totalsWith(99))).toBe(0)
+    expect(await db.countHands()).toBe(1)
+    // A no-op must not overwrite a good record with whatever was passed in.
+    expect((await db.readTotals())?.hands).toBe(1)
+  })
+
+  it('removes every copy of a duplicated hand, not just the first', async () => {
+    const db = await freshDb()
+    // Two records sharing a timestamp should not survive being deleted.
+    await db.appendHand(hand(7), totalsWith(1))
+    await db.appendHand(hand(7), totalsWith(2))
+    await db.appendHand(hand(8), totalsWith(3))
+
+    expect(await db.deleteHands([7], totalsWith(1))).toBe(2)
+    expect((await db.readAllHands()).map((h) => h.handNumber)).toEqual([8])
+  })
+
   it('does not leak the store key into the records it hands back', async () => {
     const db = await freshDb()
     await db.appendHand(hand(1), totalsWith(1))

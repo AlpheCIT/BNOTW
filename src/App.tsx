@@ -10,14 +10,16 @@ import { blankNight, makeId, type GameNight, type NightPlayer } from './state/re
 import {
   loadBook, loadCoachCreds, loadHandNames, loadRoster, loadSettings, loadVoices,
   saveBook, saveCoachCreds, saveHandNames, saveVoices,
-  saveRoster, saveSettings,
+  saveRoster, saveSettings, saveTableSnapshot,
   type CoachCreds, type RecordBook, type RosterState, type VoiceSettings,
 } from './state/storage'
 import { backupIsOverdue, requestPersistentStorage, shareBackup } from './state/backup'
+import { applyReset, type ResetAreaId } from './state/factory'
 import { CoachScorecard } from './ui/CoachPanel'
 import { DrillView } from './ui/DrillView'
 import { PlayersView } from './ui/Players'
 import { RecordBookView } from './ui/RecordBook'
+import { ResetDialog } from './ui/ResetDialog'
 import { RulesView } from './ui/RulesView'
 import { StatsView } from './ui/StatsView'
 import { TableView } from './ui/TableView'
@@ -82,6 +84,7 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false)
   const [showCashOut, setShowCashOut] = useState(false)
   const [showCoachStats, setShowCoachStats] = useState(false)
+  const [showReset, setShowReset] = useState(false)
   // Held apart from the rest of the settings so it never rides along in an export.
   const [coachCreds, setCoachCredsState] = useState<CoachCreds>(() => loadCoachCreds())
 
@@ -161,6 +164,39 @@ export default function App() {
     setRosterState(next)
     saveRoster(next)
   }, [])
+
+  /**
+   * Carry out a Start Fresh.
+   *
+   * Every area is reset in the live state as well as on disk. Clearing the
+   * stored key alone would leave the old roster on screen until a reload,
+   * which is indistinguishable from a reset that silently failed.
+   */
+  const resetAreas = useCallback((ids: ResetAreaId[]) => {
+    applyReset(ids, {
+      hands: tracker.reset,
+      drill: drill.reset,
+      coachScore: coach.reset,
+      roster: (next) => {
+        setRoster(next)
+        // The old line-up's stacks mean nothing once the seats change.
+        game.restart({ ...prefs, opponents: seatedPersonas(next) })
+        coachGame.restart({ ...prefs, opponents: seatedPersonas(next) })
+      },
+      voices: setVoices,
+      handNames: setHandNames,
+      tables: () => {
+        saveTableSnapshot('table', null)
+        saveTableSnapshot('coach', null)
+        game.restart({ ...prefs, opponents })
+        coachGame.restart({ ...prefs, opponents })
+      },
+      book: () => setBook({ version: 1, nights: [] }),
+    })
+  }, [
+    tracker.reset, drill.reset, coach.reset, setRoster, setVoices, setHandNames,
+    setBook, game, coachGame, prefs, opponents,
+  ])
 
   /** Seat changes need a fresh deal; stacks from the old line-up mean nothing. */
   const reseat = useCallback(() => {
@@ -284,7 +320,13 @@ export default function App() {
           </>
         )}
         {tab === 'drill' && <DrillView drill={drill} />}
-        {tab === 'stats' && <StatsView tracker={tracker} narrator={reviewNarrator} />}
+        {tab === 'stats' && (
+          <StatsView
+            tracker={tracker}
+            narrator={reviewNarrator}
+            onStartFresh={() => setShowReset(true)}
+          />
+        )}
         {tab === 'players' && (
           <PlayersView roster={roster} setRoster={setRoster} onSeatChange={reseat} />
         )}
@@ -339,6 +381,10 @@ export default function App() {
             }
           }}
         />
+      )}
+
+      {showReset && (
+        <ResetDialog onApply={resetAreas} onClose={() => setShowReset(false)} />
       )}
 
       {showCashOut && (
@@ -443,7 +489,21 @@ function VoicePicker({
               A second opinion shows beside the first. They agree most of the
               time; the spots where they do not are the ones worth thinking about.
             </p>
-            <button className="btn primary wide" onClick={() => setOpen(false)}>Done</button>
+            <div className="row" style={{ gap: 8 }}>
+              <button className="btn primary" onClick={() => setOpen(false)}>Done</button>
+              {/*
+                Right here rather than only in Start Fresh: a rename is undone
+                from where it was made, and knowing that is what makes trying
+                one feel free.
+              */}
+              <button
+                className="btn small ghost"
+                disabled={Object.keys(voices.names).length === 0}
+                onClick={() => onChange({ ...voices, names: {} })}
+              >
+                Original names
+              </button>
+            </div>
           </div>
         </div>
       )}

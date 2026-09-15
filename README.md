@@ -276,6 +276,60 @@ mistakes you make most.
 **X-ray** turns every hand face up with live win percentages, the way a
 televised hand looks. It is a study tool, so it only exists in coach mode.
 
+### Coaches who disagree
+
+One voice delivering one verdict teaches you what to do. Two voices arguing
+over the same spot teach you *why*, because good players genuinely disagree
+about marginal hands far more than a single confident recommendation suggests.
+Pick a **Coach** and optionally a **2nd**, and where they differ the second
+read is called out rather than buried.
+
+Five voices ship, and between them they cover the corners rather than a line
+through the middle — a loose small-ball read, a loose raise-or-fold read, a
+selective-aggressive one, a patient tight one, and the plain numbers:
+
+| | folds more | plays more |
+|---|---|---|
+| **bets small** | The House | Dominic North |
+| **bets big** | Walter Boyd (tight) | Philippa Ingram (selective), Sonny Bracken (any two cards) |
+
+How often they actually disagree, measured over 200 pre-flop spots six-handed
+(so these are entry decisions, where `entryShift` does most of its work):
+
+| second opinion | differs from The House |
+|---|---|
+| Sonny Bracken | 43% |
+| Dominic North | 36% |
+| Philippa Ingram | 8% |
+| Walter Boyd | 7% |
+
+Pick a second opinion that is not The House and the spread is wider still:
+Walter Boyd against Sonny Bracken differ on 48% of spots, Dominic North against
+Walter Boyd on 42%, while Dominic North against Sonny Bracken — both very loose
+— differ on only 8%. Across all five, at least one disagrees in 48% of spots.
+
+Two things worth taking from that. The useful pairing is one from each corner;
+two voices from the same corner are one voice answering twice. And a tight or
+selective voice barely disagrees with the plain numbers *before the flop*,
+because the house bar is already fairly tight — their disagreement is mostly
+about how hard to bet once a hand is underway, which these figures do not
+measure.
+
+Each voice shifts the Chen score needed to enter a pot, how readily it turns a
+call into a raise, and how big it bets. **Nothing about the equity changes**:
+the arithmetic is the arithmetic, and a voice only moves the bar it is judged
+against and the words it uses.
+
+The names are invented characters, not portraits. A playing style is a
+description of poker and belongs to nobody, but a living player's name is
+theirs, and a thin alias that maps one-to-one onto a real person is that
+person's name wearing a hat. The styles are drawn from schools of thought — the
+small-ball read-the-player approach, the selective-aggressive one, the patient
+positional one, and the old-school argument that position and aggression win
+more pots than cards do. None of the numbers is a claim about how anyone in
+particular plays, and none was measured from anyone's hands. Every name is
+editable, and **Original names** in the same dialog puts them back.
+
 Two honest notes on the numbers:
 
 - Equity is computed against opponents holding hands *worth playing* rather than
@@ -362,6 +416,46 @@ Replays are stored with the hand, and are the largest thing the app keeps. The
 most recent 150 hands keep theirs; older hands keep their summary row and drop
 the replay, so the history stays storable and the running totals never depend
 on it.
+
+### Correcting the record
+
+Hands played to try the app out move your VPIP and your rating exactly as hard
+as hands you meant, which is a problem for the one number this app exists to
+make honest.
+
+**Remove hands**, above the Recent Hands table, turns the list into a
+selection: tap the rows to remove, or take **All coach hands** in one go. It
+always takes two presses, and it is never one tap away from erasing something.
+
+Removing a hand subtracts it from the running totals rather than recounting
+what is left — the counters are kept that way on purpose, so that trimming old
+hands never changes your VPIP. The property that matters is tested directly:
+deleting a hand leaves exactly the totals a history without it would have had,
+for every position in the history and in any order. Two fields are deliberately
+not reversible, `firstAt` and `lastAt`, because a minimum and a maximum cannot
+be recovered by subtraction; the window they feed is only ever too wide, and it
+is cleared when the last hand goes.
+
+Only hands still held in memory can go this way, which is what the list offers
+anyway. A hand older than that is no longer around to subtract, and guessing at
+its contribution would corrupt the totals rather than correct them.
+
+### Start Fresh
+
+**My Game → Start Fresh** puts things back the way they shipped, one line at a
+time, each saying what it takes before it takes it: your hand history, your
+practice history, the coach scorecard, the players, the coaches, the hand
+names, and games in progress.
+
+Two things sit outside **Select everything**. A table in progress is only worth
+clearing deliberately. And the Record Book is never swept up in a bulk action:
+it is the only thing in the app about real money owed between real people, so
+it has to be asked for by name and carries its own warning. Deleting it does
+not settle anything — it just means nobody can look it up.
+
+The point of this is less the deleting than the editing. The personas and the
+coaches are meant to be changed; without a way back to the shipped numbers, the
+safe thing to do with a persona you are curious about is nothing.
 
 ### Rating: how well you do it
 
@@ -706,7 +800,7 @@ Every push and pull request runs typecheck, the suite and a production build
 (`.github/workflows/ci.yml`). The long skill measurement runs as its own job so
 that minutes of CPU cannot hide a fast failure behind them.
 
-75 tests, all in `npm test`:
+377 tests, all in `npm test`:
 
 - The hand evaluator is checked against the exact frequency distribution of all
   2,598,960 five-card hands (40 straight flushes, 624 quads, and so on).
@@ -727,6 +821,15 @@ that minutes of CPU cannot hide a fast failure behind them.
   case — two identical profiles — must cancel to *exactly* zero; that check is
   what caught the table's auto-rebuy being counted as profit and quietly
   contaminating every earlier measurement.
+- Deleting a hand is tested as a property rather than by example: the totals
+  after a removal must equal the totals a history that never contained the hand
+  would have had — checked at every position in a 60-hand history, and for
+  batches removed in either order.
+- The React layer is tested with real engine objects rather than mocks
+  (`ui/testTable.tsx` builds an actual `Table` behind the game API). That layer
+  had one test file and every reported bug; it now has five. The tests there are
+  mostly about the guardrails — that the action bar takes no tap it was not
+  offered, and that nothing destructive is ever one press away.
 
 ---
 

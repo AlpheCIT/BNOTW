@@ -187,6 +187,53 @@ export async function setNote(at: number, note: string): Promise<boolean> {
   }
 }
 
+/**
+ * Remove specific hands, found by when they were played, and write the
+ * totals the caller has already adjusted.
+ *
+ * Both in one transaction: a delete that landed without its totals would leave
+ * the record claiming hands it no longer holds, and the next read would show
+ * a VPIP computed over a denominator that no longer exists.
+ *
+ * `at` is a millisecond timestamp from a real hand, so collisions are not a
+ * practical concern, but the cursor deletes every row it matches rather than
+ * the first — a duplicated record should not survive being deleted.
+ *
+ * Returns how many rows went, or null when the store could not be used at all.
+ */
+export async function deleteHands(
+  ats: number[],
+  totals: PlayerTotals,
+): Promise<number | null> {
+  const db = await openDb()
+  if (!db) return null
+  if (ats.length === 0) return 0
+  try {
+    const wanted = new Set(ats)
+    const tx = db.transaction([HANDS, META], 'readwrite')
+    const index = tx.objectStore(HANDS).index('at')
+    let removed = 0
+    await new Promise<void>((resolve, reject) => {
+      const cursor = index.openCursor()
+      cursor.onsuccess = () => {
+        const c = cursor.result
+        if (!c) { resolve(); return }
+        if (wanted.has((c.value as StoredHand).at)) {
+          c.delete()
+          removed += 1
+        }
+        c.continue()
+      }
+      cursor.onerror = () => reject(cursor.error)
+    })
+    tx.objectStore(META).put(totals, TOTALS_KEY)
+    await committed(tx)
+    return removed
+  } catch {
+    return null
+  }
+}
+
 export async function countHands(): Promise<number> {
   const db = await openDb()
   if (!db) return 0

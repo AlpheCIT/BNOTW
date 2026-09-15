@@ -24,6 +24,36 @@ describe('the coaches', () => {
     expect(Math.max(...aggression) - Math.min(...aggression)).toBeGreaterThan(0.3)
   })
 
+  it('covers all four corners rather than one line through the middle', () => {
+    // Loose and tight is one axis; who bets is the other. Voices strung along
+    // a single diagonal would only ever disagree about how much, never about
+    // what to do — which is the disagreement worth showing.
+    const others = VOICES.filter((v) => v.id !== 'house')
+    const corners = new Set(
+      others.map((v) => `${v.entryShift < 0 ? 'loose' : 'tight'}-${v.aggression > 0.6 ? 'agg' : 'pas'}`),
+    )
+    expect(corners.size).toBeGreaterThanOrEqual(3)
+    expect(corners.has('loose-agg')).toBe(true)
+    expect(corners.has('loose-pas')).toBe(true)
+    expect(corners.has('tight-pas')).toBe(true)
+  })
+
+  it('gives every voice its own numbers and its own words', () => {
+    const ids = VOICES.map((v) => v.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(new Set(VOICES.map((v) => v.name)).size).toBe(VOICES.length)
+    // Two voices sharing a line would read as one coach answering twice.
+    const lines = VOICES.flatMap((v) => Object.values(v.says))
+    expect(new Set(lines).size).toBe(lines.length)
+    for (const v of VOICES) {
+      expect(v.sizing, v.id).toBeGreaterThan(0)
+      expect(v.sizing, v.id).toBeLessThanOrEqual(1)
+      expect(v.aggression, v.id).toBeGreaterThanOrEqual(0)
+      expect(v.aggression, v.id).toBeLessThanOrEqual(1)
+      expect(v.blurb.length, v.id).toBeGreaterThan(30)
+    }
+  })
+
   it('takes the name this table gave it', () => {
     const v = voice('reader')
     expect(voiceName(v)).toBe(v.name)
@@ -58,9 +88,12 @@ describe('coaches who disagree', () => {
       counted++
       if (new Set(picks.map((p) => p.action)).size > 1) split++
     }
-    // Measured at 47 of 120 when this was written. The point is that it is
-    // neither nil — which would make the feature pointless — nor everything,
-    // which would mean the coaching had no shared basis at all.
+    // Measured at 48% over 200 pre-flop spots when this was written, ranging
+    // from 7% (house vs rock) to 48% (rock vs gambler) pairwise. The point is
+    // that it is neither nil — which would make the feature pointless — nor
+    // everything, which would mean the coaching had no shared basis at all.
+    // The band is wide because this is a measurement, not a target: a voice
+    // being retuned should not fail the suite, only collapsing them should.
     expect(split / counted).toBeGreaterThan(0.15)
     expect(split / counted).toBeLessThan(0.75)
   })

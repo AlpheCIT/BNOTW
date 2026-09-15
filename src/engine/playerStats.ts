@@ -204,6 +204,95 @@ export function accumulate(totals: PlayerTotals, hand: HandRecord): PlayerTotals
   return next
 }
 
+/**
+ * Take a hand back out of the totals.
+ *
+ * The exact inverse of `accumulate`, needed because the counters are running
+ * totals rather than something derived from the stored hands: they are kept
+ * that way precisely so that trimming old hands does not change your VPIP, so
+ * deleting a hand has to subtract it rather than recount what is left.
+ *
+ * Two things are deliberately not perfectly reversible:
+ *
+ *   `firstAt` and `lastAt` are a minimum and a maximum, and neither can be
+ *     recovered by subtraction — the new boundary lives in some other hand,
+ *     which may not even be in memory. They are left alone, except when the
+ *     last hand goes and the whole window is meaningless. The window is only
+ *     ever too wide, never too narrow, and it feeds the "playing since" line
+ *     rather than any rate.
+ *
+ *   Every counter is clamped at zero. It should never be reachable — a hand
+ *     can only be removed after it was added — but a record that has been
+ *     through an import, a failed write or an older version of this file is
+ *     not something to trust into showing a negative VPIP.
+ */
+export function unaccumulate(totals: PlayerTotals, hand: HandRecord): PlayerTotals {
+  const next: PlayerTotals = {
+    ...totals,
+    handsByMode: { ...totals.handsByMode },
+    leaks: { ...totals.leaks },
+    byStreet: { ...totals.byStreet },
+  }
+  const down = (n: number) => Math.max(0, n - 1)
+
+  next.hands = down(next.hands)
+  next.handsByMode[hand.mode] = down(next.handsByMode[hand.mode])
+  next.net -= hand.net
+  next.netSq = Math.max(0, next.netSq - hand.net * hand.net)
+  if (hand.net > 0) next.handsWon = down(next.handsWon)
+
+  if (hand.bomb) {
+    next.bombHands = down(next.bombHands)
+    next.bombNet -= hand.net
+  } else {
+    next.preflopHands = down(next.preflopHands)
+    if (hand.vpip) next.vpip = down(next.vpip)
+    if (hand.pfr) next.pfr = down(next.pfr)
+    if (hand.facedRaise) next.facedRaise = down(next.facedRaise)
+    if (hand.threeBet) next.threeBet = down(next.threeBet)
+  }
+
+  if (hand.sawFlop) next.sawFlop = down(next.sawFlop)
+  if (hand.showdown) next.showdowns = down(next.showdowns)
+  if (hand.wonShowdown) next.showdownWins = down(next.showdownWins)
+  next.aggressive = Math.max(0, next.aggressive - hand.aggressive)
+  next.passive = Math.max(0, next.passive - hand.passive)
+  if (hand.couldStraddle) next.couldStraddle = down(next.couldStraddle)
+  if (hand.straddled) next.straddled = down(next.straddled)
+  if (hand.dexterHeld) next.dexterHeld = down(next.dexterHeld)
+  if (hand.dexterWon) next.dexterWon = down(next.dexterWon)
+
+  for (const d of hand.decisions) {
+    next.decisions = down(next.decisions)
+    if (d.agreed) next.agreed = down(next.agreed)
+    next.evLost = Math.max(0, next.evLost - d.evLost)
+    next.evLostSq = Math.max(0, next.evLostSq - d.evLost * d.evLost)
+    if (d.leak) {
+      const left = (next.leaks[d.leak] ?? 0) - 1
+      // Dropped rather than left at zero: a leak with no instances behind it
+      // would still be listed as something you do.
+      if (left > 0) next.leaks[d.leak] = left
+      else delete next.leaks[d.leak]
+    }
+    const street = next.byStreet[d.street]
+    if (street) {
+      const left = {
+        decisions: Math.max(0, street.decisions - 1),
+        agreed: Math.max(0, street.agreed - (d.agreed ? 1 : 0)),
+        evLost: Math.max(0, street.evLost - d.evLost),
+      }
+      if (left.decisions > 0) next.byStreet[d.street] = left
+      else delete next.byStreet[d.street]
+    }
+  }
+
+  if (next.hands === 0) {
+    next.firstAt = 0
+    next.lastAt = 0
+  }
+  return next
+}
+
 // ---------------------------------------------------------------------------
 // Tendencies
 // ---------------------------------------------------------------------------

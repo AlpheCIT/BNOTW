@@ -13,6 +13,7 @@ import { CATEGORY_NAMES, describeHand, evaluate, HandCategory, type HandValue } 
 import { BIG_BLIND, money } from './bnotw'
 import { chenScore } from './ai'
 import { bestHand, legalActions, livePlayers, potTotal, type LegalActions } from './hand'
+import { voice, type CoachVoice } from './voices'
 import type { Action, ActionKind, HandState, Seat, Street } from './types'
 
 // ---------------------------------------------------------------------------
@@ -491,6 +492,8 @@ export function advise(
   seat: number,
   rng: Rng,
   trials = 2200,
+  /** Whose read this is. Omitted, it is the house's — the straight numbers. */
+  speaker: CoachVoice = voice('house'),
 ): CoachAdvice {
   const player = state.players[seat]
   const legal = legalActions(state, seats, seat)
@@ -508,8 +511,8 @@ export function advise(
   const callEV = toCall > 0 ? equity.equity * pot - (1 - equity.equity) * toCall : 0
 
   const recommendation = state.board.length === 0
-    ? preflopAdvice(state, legal, starting, seat, pot, toCall, breakEven, equity.equity)
-    : postflopAdvice(legal, made, outs, equity.equity, breakEven, callEV, pot, opponents)
+    ? preflopAdvice(state, legal, starting, seat, pot, toCall, breakEven, equity.equity, speaker)
+    : postflopAdvice(legal, made, outs, equity.equity, breakEven, callEV, pot, opponents, speaker)
 
   return {
     street: state.street,
@@ -555,6 +558,7 @@ function preflopAdvice(
   toCall: number,
   breakEven: number,
   equity: number,
+  speaker: CoachVoice,
 ): Recommendation {
   const where = positionName(state, seat)
   const late = where === 'on the button' || where === 'in the cut-off'
@@ -568,13 +572,22 @@ function preflopAdvice(
     reasons.push(`A straddle makes this a ${money(forced)} game for this hand, so everything is priced off that.`)
   }
 
-  // Position is worth about two Chen points.
-  const need = (raised ? 10 : 6.5) - (late ? 2 : 0) + (where === 'in early position' ? 1 : 0)
+  /*
+   * Position is worth about two Chen points, and the coach's own taste is
+   * worth a couple more either way. This is where two voices genuinely part
+   * company: the same hand in the same seat is a call to one and a fold to
+   * another, and that disagreement is the thing worth showing.
+   */
+  const need = (raised ? 10 : 6.5)
+    - (late ? 2 : 0)
+    + (where === 'in early position' ? 1 : 0)
+    + speaker.entryShift
 
   if (legal.canCheck) {
     if (starting.chen >= need + 4 && legal.canBet) {
       const amount = Math.min(legal.maxRaiseTo, Math.max(legal.minRaiseTo, state.currentBet * 3))
       reasons.push('Nobody has raised and this hand is too good to let everyone in cheaply.')
+      reasons.push(speaker.says.aggressive)
       return { action: 'bet', amount, headline: `Raise to ${money(amount)}`, reasons, confidence: 'clear' }
     }
     reasons.push('Checking is free and this hand does not want to build a pot yet.')
@@ -584,6 +597,7 @@ function preflopAdvice(
   if (starting.chen >= need + 5 && legal.canRaise) {
     const amount = Math.min(legal.maxRaiseTo, Math.max(legal.minRaiseTo, state.currentBet * 3))
     reasons.push('Strong enough to raise for value rather than flat call.')
+    reasons.push(speaker.says.aggressive)
     return { action: 'raise', amount, headline: `Raise to ${money(amount)}`, reasons, confidence: 'clear' }
   }
 
@@ -593,6 +607,7 @@ function preflopAdvice(
       'right now — but a hand like this is played for what it can make after the flop, ' +
       'not for its share of the pot this second.',
     )
+    reasons.push(speaker.says.loose)
     return {
       action: 'call',
       headline: `Call ${money(toCall)}`,
@@ -611,6 +626,7 @@ function preflopAdvice(
       'this one after the flop. Folding now costs nothing.',
     )
   }
+  reasons.push(speaker.says.tight)
   return { action: 'fold', headline: 'Fold', reasons, confidence: starting.chen > need - 1.5 ? 'close' : 'clear' }
 }
 
@@ -623,6 +639,7 @@ function postflopAdvice(
   callEV: number,
   pot: number,
   opponents: number,
+  speaker: CoachVoice,
 ): Recommendation {
   const reasons: string[] = []
   if (made) reasons.push(`You have ${describeHand(made)}.`)
@@ -639,10 +656,15 @@ function postflopAdvice(
 
   // --- checked to us -------------------------------------------------------
   if (legal.canCheck) {
-    const valueBar = 0.5 + 0.06 * Math.min(opponents, 4)
+    // An aggressive voice bets thinner and bigger; a patient one waits for more.
+    const valueBar = 0.5 + 0.06 * Math.min(opponents, 4) - (speaker.aggression - 0.5) * 0.12
     if (equity > valueBar && legal.canBet) {
-      const amount = Math.min(legal.maxRaiseTo, Math.max(legal.minRaiseTo, Math.round(pot * 0.6)))
+      const amount = Math.min(
+        legal.maxRaiseTo,
+        Math.max(legal.minRaiseTo, Math.round(pot * speaker.sizing)),
+      )
       reasons.push(`Ahead of this many players, so bet for value — about ${money(amount)} into ${money(pot)}.`)
+      reasons.push(speaker.says.aggressive)
       return { action: 'bet', amount, headline: `Bet ${money(amount)}`, reasons, confidence: 'clear' }
     }
     if (bigDraw && opponents <= 2 && legal.canBet) {
@@ -651,6 +673,7 @@ function postflopAdvice(
       return { action: 'bet', amount, headline: `Bet ${money(amount)}`, reasons, confidence: 'close' }
     }
     reasons.push('Not enough to bet for value and not enough of a draw to bluff. Take the free card.')
+    reasons.push(speaker.says.passive)
     return { action: 'check', headline: 'Check', reasons, confidence: 'clear' }
   }
 
@@ -668,8 +691,12 @@ function postflopAdvice(
   const margin = equity - breakEven
 
   if (equity > 0.72 && legal.canRaise && strong) {
-    const amount = Math.min(legal.maxRaiseTo, Math.max(legal.minRaiseTo, Math.round(pot * 0.75)))
+    const amount = Math.min(
+      legal.maxRaiseTo,
+      Math.max(legal.minRaiseTo, Math.round(pot * Math.max(0.6, speaker.sizing))),
+    )
     reasons.push('Well ahead — raise and charge the draws rather than just calling.')
+    reasons.push(speaker.says.aggressive)
     return { action: 'raise', amount, headline: `Raise to ${money(amount)}`, reasons, confidence: 'clear' }
   }
 

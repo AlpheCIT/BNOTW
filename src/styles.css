@@ -1154,6 +1154,25 @@ table.grid tr.winner td { background: rgba(95, 208, 138, 0.08); }
 
 .xray-row { display: flex; gap: 8px; align-items: center; font-size: 11px; }
 
+/* A second coach's read, beside the first. Agreement is reassuring; the
+   disagreement is the part worth reading, so it is the one that stands out. */
+.second-read {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+}
+
+.second-read.agrees { background: #12281e; border-color: #2c5741; color: #a8e6c0; }
+.second-read.differs { background: #1c2436; border-color: #3b4a6b; color: #cfd8f0; }
+.second-read b { font-size: 12.5px; }
+.second-read p { flex: 1 1 100%; margin: 2px 0 0; opacity: 0.9; line-height: 1.5; }
+
 /* The "where does my history live" explainer: folded away by default, because
    most people need it exactly once. */
 .yourdata-toggle {

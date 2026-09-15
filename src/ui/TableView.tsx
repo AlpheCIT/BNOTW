@@ -8,6 +8,8 @@ import { shortHand } from '../engine/handEval'
 import { pct, showdownEquity, type EquityResult } from '../engine/coach'
 import { bestHand, legalActions, livePlayers, potTotal } from '../engine/hand'
 import { handName, type CustomHandNames } from '../engine/handNames'
+import { voice, voiceName } from '../engine/voices'
+import { DEFAULT_VOICES, type VoiceSettings } from '../state/storage'
 import { guardFor, type Guard, type GuardOptions } from '../engine/misclick'
 import { useAdvice } from './useAdvice'
 import type { Action, HandPlayer, HandState, Seat as SeatModel } from '../engine/types'
@@ -53,7 +55,7 @@ function betSpot(index: number, total: number) {
 
 export function TableView({
   game, onCashOut, coach, tracker, mode = 'table', narrator, guardOptions = {},
-  handNames = {},
+  handNames = {}, voices = DEFAULT_VOICES,
 }: {
   game: GameApi
   onCashOut: () => void
@@ -68,6 +70,8 @@ export function TableView({
   guardOptions?: GuardOptions
   /** Nicknames this table has added or changed. */
   handNames?: CustomHandNames
+  /** Whose read to show, and an optional second opinion beside it. */
+  voices?: VoiceSettings
 }) {
   const { table, version } = game
   const hand = table.hand
@@ -85,7 +89,18 @@ export function TableView({
    * needs it the moment you act, and starting it now means it is almost always
    * ready by then rather than being raced on the main thread after the tap.
    */
-  const scoring = useAdvice(hand, table.seats, seat, myTurn, 1500)
+  const scoring = useAdvice(hand, table.seats, seat, myTurn, 1500, voices.primary)
+  /*
+   * A second read on the same spot, when one is chosen.
+   *
+   * Two coaches agreeing is reassuring and two disagreeing is the actually
+   * useful case — marginal hands are marginal precisely because good players
+   * differ on them, and one confident verdict hides that.
+   */
+  const secondScoring = useAdvice(
+    hand, table.seats, seat, Boolean(coach) && myTurn && Boolean(voices.second),
+    1200, voices.second ?? 'house',
+  )
   // Only coach mode puts it on screen; the table uses it silently for tracking.
   const advice = coach ? scoring.advice : null
 
@@ -271,6 +286,11 @@ export function TableView({
         <CoachPanel
           advice={advice}
           pending={coach ? scoring.pending : false}
+          speaker={voiceName(voice(voices.primary), voices.names)}
+          second={voices.second ? {
+            name: voiceName(voice(voices.second), voices.names),
+            advice: secondScoring.advice,
+          } : null}
           review={coach.lastReview}
           narrator={narrator}
           position={positionLabel(hand, seat)}

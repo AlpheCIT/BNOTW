@@ -10,6 +10,7 @@ import type { TableSnapshot } from '../engine/table'
 import type { PlayMode } from '../engine/playerStats'
 import type { ProviderId } from '../engine/providers/types'
 import type { CustomHandNames } from '../engine/handNames'
+import type { CustomVoiceNames } from '../engine/voices'
 import { emptyTotals, type HandRecord, type PlayerTotals } from '../engine/playerStats'
 import type { GameNight } from './records'
 import { sortNights } from './records'
@@ -24,6 +25,7 @@ const TABLE_KEY = 'bnotw.table.v1'
 const COACH_TABLE_KEY = 'bnotw.table.coach.v1'
 const DRILL_KEY = 'bnotw.drill.v1'
 const HAND_NAMES_KEY = 'bnotw.handnames.v1'
+const VOICES_KEY = 'bnotw.voices.v1'
 const COACH_KEY = 'bnotw.coach.v1'
 
 export interface RecordBook {
@@ -452,5 +454,45 @@ export function saveHandNames(names: CustomHandNames): void {
     localStorage.setItem(HAND_NAMES_KEY, JSON.stringify(names))
   } catch {
     // Flavour, not money. Never worth failing over.
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Which coach is talking
+// ---------------------------------------------------------------------------
+
+export interface VoiceSettings {
+  /** Whose read to show. */
+  primary: string
+  /** A second opinion alongside it, or null for one voice. */
+  second: string | null
+  /** Names this table has given them. */
+  names: CustomVoiceNames
+}
+
+export const DEFAULT_VOICES: VoiceSettings = { primary: 'house', second: null, names: {} }
+
+export function loadVoices(): VoiceSettings {
+  if (typeof localStorage === 'undefined') return DEFAULT_VOICES
+  try {
+    const raw = localStorage.getItem(VOICES_KEY)
+    if (!raw) return DEFAULT_VOICES
+    const data = JSON.parse(raw) as Partial<VoiceSettings>
+    return {
+      primary: typeof data.primary === 'string' ? data.primary : 'house',
+      second: typeof data.second === 'string' ? data.second : null,
+      names: data.names && typeof data.names === 'object' ? data.names : {},
+    }
+  } catch {
+    return DEFAULT_VOICES
+  }
+}
+
+export function saveVoices(settings: VoiceSettings): void {
+  if (typeof localStorage === 'undefined') return
+  try {
+    localStorage.setItem(VOICES_KEY, JSON.stringify(settings))
+  } catch {
+    // Preference, not data.
   }
 }

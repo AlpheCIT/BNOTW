@@ -7,7 +7,7 @@ import type { NarratorApi } from './useNarrator'
 
 /** The advice panel shown while it is your turn in coach mode. */
 export function CoachPanel({
-  advice, review, narrator, position, pending = false,
+  advice, review, narrator, position, pending = false, speaker, second = null,
 }: {
   advice: CoachAdvice | null
   review: DecisionReview | null
@@ -15,6 +15,10 @@ export function CoachPanel({
   position?: string
   /** The spot is yours and the numbers are still being worked out. */
   pending?: boolean
+  /** Who is giving this read. Omitted when it is just the house. */
+  speaker?: string
+  /** A second read on the same spot, for when two coaches disagree. */
+  second?: { name: string; advice: CoachAdvice | null } | null
 }) {
   if (!advice) {
     return (
@@ -36,7 +40,7 @@ export function CoachPanel({
 
   return (
     <div className="coach">
-      <h3>Coach</h3>
+      <h3>{speaker ?? 'Coach'}</h3>
 
       {review && <div className={`feedback ${review.tone}`}>{review.message}</div>}
 
@@ -45,6 +49,22 @@ export function CoachPanel({
         <span className="spacer" />
         <small>{rec.confidence === 'close' ? 'Marginal' : 'Clear'}</small>
       </div>
+
+      {second?.advice && (
+        <div className={`second-read ${
+          second.advice.recommendation.action === rec.action ? 'agrees' : 'differs'
+        }`}>
+          <b>{second.name}</b>
+          <span>
+            {second.advice.recommendation.action === rec.action
+              ? `agrees — ${second.advice.recommendation.headline.toLowerCase()}`
+              : `would ${second.advice.recommendation.headline.toLowerCase()}`}
+          </span>
+          {second.advice.recommendation.action !== rec.action && (
+            <p>{second.advice.recommendation.reasons.at(-1)}</p>
+          )}
+        </div>
+      )}
 
       <div className="equity-bar" title={`${pct(equity.equity)} equity`}>
         <i style={{ width: `${Math.min(100, equity.equity * 100)}%` }} />

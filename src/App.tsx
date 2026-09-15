@@ -4,13 +4,14 @@ import {
 } from './engine/bnotw'
 import type { Persona } from './engine/persona'
 import { PROVIDERS, providerInfo } from './engine/providers'
+import { VOICES, voice, voiceName } from './engine/voices'
 import type { BombPotTrigger, TableSettings } from './engine/table'
 import { blankNight, makeId, type GameNight, type NightPlayer } from './state/records'
 import {
-  loadBook, loadCoachCreds, loadHandNames, loadRoster, loadSettings, saveBook, saveCoachCreds,
-  saveHandNames,
+  loadBook, loadCoachCreds, loadHandNames, loadRoster, loadSettings, loadVoices,
+  saveBook, saveCoachCreds, saveHandNames, saveVoices,
   saveRoster, saveSettings,
-  type CoachCreds, type RecordBook, type RosterState,
+  type CoachCreds, type RecordBook, type RosterState, type VoiceSettings,
 } from './state/storage'
 import { backupIsOverdue, requestPersistentStorage, shareBackup } from './state/backup'
 import { CoachScorecard } from './ui/CoachPanel'
@@ -107,6 +108,11 @@ export default function App() {
   // Offered after a night is recorded, which is the one moment there is
   // something new worth keeping and nobody is mid-hand.
   const [offerBackup, setOfferBackup] = useState(false)
+  const [voices, setVoicesState] = useState(() => loadVoices())
+  const setVoices = useCallback((next: VoiceSettings) => {
+    setVoicesState(next)
+    saveVoices(next)
+  }, [])
   const [handNames, setHandNamesState] = useState(() => loadHandNames())
   const setHandNames = useCallback((next: Record<string, string>) => {
     setHandNamesState(next)
@@ -259,6 +265,7 @@ export default function App() {
               >
                 Fresh table
               </button>
+              <VoicePicker voices={voices} onChange={setVoices} />
               <button className="btn small ghost" onClick={() => setShowCoachStats(true)}>
                 Your stats
               </button>
@@ -272,6 +279,7 @@ export default function App() {
               narrator={tableNarrator}
               guardOptions={guardOptions}
               handNames={handNames}
+              voices={voices}
             />
           </>
         )}
@@ -357,6 +365,89 @@ export default function App() {
         </div>
       )}
     </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Who is coaching, and whether anyone is arguing with them.
+ *
+ * Names are editable because these are this table's characters, not fixed
+ * personalities — the same reasoning as the hand names.
+ */
+function VoicePicker({
+  voices, onChange,
+}: {
+  voices: VoiceSettings
+  onChange: (voices: VoiceSettings) => void
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <>
+      <button className="btn small ghost" onClick={() => setOpen(true)}>
+        {voiceName(voice(voices.primary), voices.names)}
+        {voices.second && ` + ${voiceName(voice(voices.second), voices.names)}`}
+      </button>
+
+      {open && (
+        <div className="overlay" onClick={() => setOpen(false)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h2>Who is coaching?</h2>
+            <p className="sub">
+              Invented characters with real playing styles. A style is just a
+              description of poker and belongs to nobody; the people are made up.
+              Rename them to whatever your table calls them.
+            </p>
+
+            {VOICES.map((v) => (
+              <div className="field" key={v.id}>
+                <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  <input
+                    style={{ flex: '1 1 140px' }}
+                    value={voices.names[v.id] ?? v.name}
+                    maxLength={30}
+                    onChange={(e) => onChange({
+                      ...voices,
+                      names: { ...voices.names, [v.id]: e.target.value },
+                    })}
+                  />
+                  <button
+                    className={`btn small ${voices.primary === v.id ? '' : 'ghost'}`}
+                    onClick={() => onChange({
+                      ...voices,
+                      primary: v.id,
+                      // Nobody argues with themselves.
+                      second: voices.second === v.id ? null : voices.second,
+                    })}
+                  >
+                    Coach
+                  </button>
+                  <button
+                    className={`btn small ${voices.second === v.id ? '' : 'ghost'}`}
+                    disabled={voices.primary === v.id}
+                    onClick={() => onChange({
+                      ...voices,
+                      second: voices.second === v.id ? null : v.id,
+                    })}
+                  >
+                    2nd
+                  </button>
+                </div>
+                <p className="sub" style={{ marginTop: 4 }}>{v.blurb}</p>
+              </div>
+            ))}
+
+            <p className="sub">
+              A second opinion shows beside the first. They agree most of the
+              time; the spots where they do not are the ones worth thinking about.
+            </p>
+            <button className="btn primary wide" onClick={() => setOpen(false)}>Done</button>
+          </div>
+        </div>
+      )}
+    </>
   )
 }
 

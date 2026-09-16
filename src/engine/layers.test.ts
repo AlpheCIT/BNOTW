@@ -20,8 +20,20 @@ function totalsWith(decisions: number, leaks: Record<string, number> = {}): Play
 }
 
 describe('the layers themselves', () => {
-  it('runs price, hand, player, table in that order', () => {
-    expect(LAYERS.map((l) => l.id)).toEqual(['price', 'hand', 'player', 'table'])
+  it('runs price, hand, player, frequency, table in that order', () => {
+    expect(LAYERS.map((l) => l.id)).toEqual(['price', 'hand', 'player', 'frequency', 'table'])
+  })
+
+  /*
+   * The frequency layer's honest half — that the floor is only worth
+   * respecting against somebody who actually bluffs — is read off the
+   * opponent, so it cannot be offered before the layer that reads opponents.
+   * Asserted rather than left to the array above, because reordering that
+   * array is exactly the kind of tidy-up that would break it silently.
+   */
+  it('never offers the frequency layer before the player it depends on', () => {
+    const ids = LAYERS.map((l) => l.id)
+    expect(ids.indexOf('frequency')).toBeGreaterThan(ids.indexOf('player'))
   })
 
   it('starts a new player on one question rather than four', () => {
@@ -183,10 +195,20 @@ describe('suggesting the next layer', () => {
     expect(suggestLayer(clean, ['price', 'player'])?.layer.id).toBe('hand')
   })
 
-  it('offers the table layer without pretending to have measured it', () => {
-    const suggestion = suggestLayer(clean, ['price', 'hand', 'player'])
-    expect(suggestion?.layer.id).toBe('table')
-    expect(suggestion?.because).toMatch(/\?$/)
+  it('offers an unmeasurable layer without pretending to have measured it', () => {
+    const frequency = suggestLayer(clean, ['price', 'hand', 'player'])
+    expect(frequency?.layer.id).toBe('frequency')
+    expect(frequency?.because).toMatch(/\?$/)
+
+    const table = suggestLayer(clean, ['price', 'hand', 'player', 'frequency'])
+    expect(table?.layer.id).toBe('table')
+    expect(table?.because).toMatch(/\?$/)
+  })
+
+  // Two unmeasurable layers now sit next to each other, and the gate skips
+  // them rather than settling them. The one after must still be reachable.
+  it('does not stall on a run of layers it cannot measure', () => {
+    expect(suggestLayer(clean, ['price', 'hand', 'player', 'frequency'])?.layer.id).toBe('table')
   })
 
   it('walks the whole path as a record improves', () => {
@@ -198,7 +220,7 @@ describe('suggesting the next layer', () => {
       seen.push(next.layer.id)
       active = [...active, next.layer.id]
     }
-    expect(seen).toEqual(['hand', 'player', 'table'])
+    expect(seen).toEqual(['hand', 'player', 'frequency', 'table'])
   })
 })
 

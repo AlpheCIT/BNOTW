@@ -43,7 +43,20 @@ export default defineConfig({
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
-  timeout: 60_000,
+  /*
+   * Generous, because these tests play real hands at real speed.
+   *
+   * Three hands measured between 25 and 33 seconds, and a hand that goes to
+   * showdown with a decision on every street — or a bust and a rebuy — is
+   * several seconds longer again. At 60 seconds that variance failed a test
+   * about something else roughly one run in ten, which is worse than useless:
+   * a suite people learn to re-run is a suite people stop believing.
+   *
+   * This does not weaken the check for a table that has actually stopped.
+   * `playHands` throws on its own after 15 seconds with nothing to press, and
+   * prints what is on screen, so a real hang still fails fast and says why.
+   */
+  timeout: 120_000,
   /*
    * Three shapes, and landscape is not optional.
    *

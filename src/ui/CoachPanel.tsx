@@ -3,6 +3,7 @@ import { money, signedMoney } from '../engine/bnotw'
 import { cardCode } from '../engine/cards'
 import { pct, type CoachAdvice, type DecisionReview } from '../engine/coach'
 import { allLayers, type LayerId } from '../engine/layers'
+import { defenceAdvice } from '../engine/frequency'
 import type { Read } from '../engine/reads'
 import type { CoachStats } from '../state/storage'
 import { Explain } from './Explain'
@@ -156,6 +157,8 @@ export function CoachPanel({
 
       {on('player') && <PlayerLayer advice={advice} position={position} reads={reads} />}
 
+      {on('frequency') && <FrequencyLayer advice={advice} reads={reads} />}
+
       {on('table') && tableNotes.length > 0 && (
         <div className="layer-panel">
           <h4>This table</h4>
@@ -306,6 +309,104 @@ function PlayerLayer({
           Nobody left to read — the reads build up as the session goes on.
         </p>
       )}
+    </div>
+  )
+}
+
+/**
+ * The frequency layer: what the bet asks of your whole range.
+ *
+ * Deliberately the only panel that says nothing about your cards. Everything
+ * above is "do I have it"; this is "what would I have to do here with
+ * everything I could have", and the two answers disagreeing is the point
+ * rather than a bug.
+ */
+function FrequencyLayer({
+  advice, reads,
+}: {
+  advice: CoachAdvice
+  reads: { seat: number; name: string; read: Read }[]
+}) {
+  const { defence, bluffing } = advice
+  // Neither applies in a checked-through round with nothing to bet: render
+  // nothing rather than a panel of zeroes.
+  if (!defence && !bluffing) return null
+
+  const bettor = defence ? reads.find((r) => r.seat === advice.bettor) : undefined
+  const verdict = bettor ? defenceAdvice(bettor.read) : 'unknown'
+
+  return (
+    <div className="layer-panel">
+      <h4>The frequency</h4>
+
+      {defence && (
+        <>
+          <p>
+            Risking <b>{money(defence.risk)}</b> to win <b>{money(defence.potBefore)}</b>, a
+            bluff breaks even if you fold <b>{pct(defence.alpha)}</b> of the time. Fold more
+            than that and any two cards beat you here.
+          </p>
+          <div className="freq-rows">
+            <div className="freq-row">
+              <b>{pct(defence.defence)}</b>
+              <span>of your range has to go on, heads-up</span>
+            </div>
+            {defence.defenders > 1 && (
+              <div className="freq-row">
+                <b>{pct(defence.share)}</b>
+                <span>
+                  your share of it, with {defence.defenders} of you able to do the defending
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/*
+            The half that stops this being a number to obey. A floor is only
+            worth holding against somebody who bluffs; against the crew member
+            who has never once bet without it, folding far more than the floor
+            is the whole edge.
+          */}
+          <p className={`freq-verdict ${verdict}`}>
+            {verdict === 'binds' && bettor && (
+              <>
+                <b>{bettor.name}</b> bets {pct(bettor.read.aggression)} of the time they can, so
+                the floor is worth holding against them.
+              </>
+            )}
+            {verdict === 'overfolds-fine' && bettor && (
+              <>
+                <b>{bettor.name}</b> has only bet {pct(bettor.read.aggression)} of the time they
+                could. Against somebody who rarely bets without a hand, folding more than the
+                floor is the profitable mistake — the floor costs you nothing if they never
+                collect on it.
+              </>
+            )}
+            {verdict === 'unknown' && (
+              <>
+                Not enough hands on them yet to say whether they bluff. Until there are, the
+                floor is the safe default rather than the right answer.
+              </>
+            )}
+          </p>
+        </>
+      )}
+
+      {bluffing && (
+        <p>
+          Betting <b>{money(bluffing.bet)}</b> into <b>{money(bluffing.potBefore)}</b> gives a
+          caller a price that supports <b>{bluffing.perBluff.toFixed(1)}</b> value hands for
+          every bluff.{' '}
+          {bluffing.exact
+            ? 'Exact here — there are no cards left to come.'
+            : 'A floor rather than the figure: with cards to come a bluff can still improve, so the honest ratio is wider.'}
+        </p>
+      )}
+
+      <p className="sub" style={{ margin: 0, fontSize: 10.5 }}>
+        These are arithmetic, not a solver, and they describe a range rather than the hand you
+        are holding. Nothing here knows your cards.
+      </p>
     </div>
   )
 }

@@ -14,6 +14,7 @@ import { BIG_BLIND, money } from './bnotw'
 import { chenScore } from './ai'
 import { isLate, positionLabelFor, positionOf } from './position'
 import { bestHand, legalActions, livePlayers, potTotal, type LegalActions } from './hand'
+import { bluffReport, defenceReport, type BluffReport, type DefenceReport } from './frequency'
 import { voice, type CoachVoice } from './voices'
 import type { Action, ActionKind, HandState, Seat, Street } from './types'
 
@@ -404,6 +405,21 @@ export interface CoachAdvice {
   breakEven: number
   /** Expected value of calling, in cents. */
   callEV: number
+  /**
+   * Facing a bet: how often it needs you to fold, and how much of your range
+   * has to continue to take that away. Null when there is nothing to call.
+   */
+  defence: DefenceReport | null
+  /**
+   * Who made it, so the panel can say whether the floor is worth respecting
+   * against *them*. Null whenever nobody has bet.
+   */
+  bettor: number | null
+  /**
+   * Betting yourself: how many bluffs a pot-sized bet here could carry. Null
+   * unless betting is actually on the table.
+   */
+  bluffing: BluffReport | null
   legal: LegalActions
   recommendation: Recommendation
 }
@@ -511,6 +527,32 @@ export function advise(
   const breakEven = toCall > 0 ? toCall / (pot + toCall) : 0
   const callEV = toCall > 0 ? equity.equity * pot - (1 - equity.equity) * toCall : 0
 
+  /*
+   * The frequency numbers, which are about the range rather than the hand.
+   *
+   * Only one of the two can apply: you are either facing a bet or you are
+   * considering making one. Both are null when neither is true — checked
+   * round, nothing to call, nothing legal to bet — and the panel renders
+   * nothing rather than a row of zeroes.
+   *
+   * `defenders` is everybody still in except the one who bet, which is the
+   * same count as `opponents` for a different reason: that one excludes you
+   * instead. Worth stating, because the two coming apart later would be a
+   * silent change of meaning.
+   */
+  const risk = aggressorRisk(state)
+  const defence = toCall > 0 && risk > 0
+    ? defenceReport(Math.max(0, pot - risk), risk, opponents)
+    : null
+  const bettor = defence ? aggressorSeat(state) : null
+  // Quoted for a pot-sized bet, or a shove where the stack cannot reach one.
+  // `maxRaiseTo` is a total to arrive at, so what is actually being risked is
+  // the part not already in front of the player.
+  const canAfford = Math.max(0, legal.maxRaiseTo - player.committedRound)
+  const bluffing = toCall === 0 && legal.canBet && canAfford > 0
+    ? bluffReport(pot, Math.min(pot, canAfford), state.street)
+    : null
+
   const recommendation = state.board.length === 0
     ? preflopAdvice(state, legal, starting, seat, pot, toCall, breakEven, equity.equity, speaker)
     : postflopAdvice(legal, made, outs, equity.equity, breakEven, callEV, pot, opponents, speaker)
@@ -533,9 +575,45 @@ export function advise(
     toCall,
     breakEven,
     callEV,
+    defence,
+    bettor,
+    bluffing,
     legal,
     recommendation,
   }
+}
+
+/**
+ * Whoever the current bet belongs to — the one live player matching it.
+ *
+ * Null in a round nobody has bet in. Used to look up a read on the player who
+ * actually made the bet, rather than on the table in general.
+ */
+export function aggressorSeat(state: HandState): number | null {
+  const at = livePlayers(state).find((p) => p.committedRound === state.currentBet)
+  return state.currentBet > 0 && at ? at.seat : null
+}
+
+/**
+ * What the aggressor actually put at risk to make the price what it is.
+ *
+ * Not the same as what it costs you to call, and the difference is the whole
+ * reason this is a function. Somebody raising $10 to $40 with you already in
+ * for $10 risked $30, not $40 — and the pot they win if everybody folds is the
+ * pot as it stood before those $30 went in. Using the call amount instead
+ * would quietly overstate the bet on every raise, which is exactly the spot
+ * where a player most needs the number to be right.
+ *
+ * Found as the gap between the current bet and the next-highest amount anybody
+ * live has in for this round, which is the level they raised over. For a plain
+ * bet into an unopened round that second level is zero, and it comes out as
+ * the bet itself.
+ */
+export function aggressorRisk(state: HandState): number {
+  const live = livePlayers(state)
+  const levels = live.map((p) => p.committedRound).sort((a, b) => b - a)
+  const under = levels.length > 1 ? levels[1] : 0
+  return Math.max(0, state.currentBet - under)
 }
 
 /** Includes the preposition, so it reads properly in a sentence. */

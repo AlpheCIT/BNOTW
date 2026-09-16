@@ -22,6 +22,7 @@ import {
   saveCoachStats, saveDrillStats, saveLayers, savePlayerLog,
 } from './storage'
 import { accumulate, emptyTotals, type HandRecord } from '../engine/playerStats'
+import { LAYERS } from '../engine/layers'
 
 beforeEach(() => { localStorage.clear() })
 
@@ -155,7 +156,10 @@ describe('making a player', () => {
 describe('experience', () => {
   it('only decides how much of the coach starts switched on', () => {
     expect(experienceMeta('new').layers).toEqual(['price'])
-    expect(experienceMeta('serious').layers.length).toBe(4)
+    // Counted off LAYERS rather than written out, because "show me
+    // everything" means everything there is — a new layer that did not reach
+    // this level would be a bug, not a number to update here.
+    expect(experienceMeta('serious').layers.length).toBe(LAYERS.length)
     // Strictly widening as experience grows: a level that hid something the
     // one below it showed would read as a punishment.
     let last = 0

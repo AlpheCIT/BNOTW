@@ -21,6 +21,7 @@ import { Avatar } from './Avatar'
 import { CoachPanel } from './CoachPanel'
 import { ReplayView } from './ReplayView'
 import { WhatIfPanel } from './WhatIfPanel'
+import { HandRecap } from './HandRecap'
 import { CardRow, PlayingCard } from './pieces'
 import type { PlayMode } from '../engine/playerStats'
 import type { CoachApi } from './useCoach'
@@ -229,6 +230,26 @@ export function TableView({
     [coach, layers, hand],
   )
 
+  /**
+   * The hand just finished, as the tracker recorded it.
+   *
+   * The coach panel only ever held one verdict, so each decision's feedback
+   * overwrote the last and by the end of a four-decision hand three were gone.
+   * Everything needed to show them all was already being written down; it was
+   * simply never read back.
+   *
+   * Matched on the hand number rather than taking the newest, so a hand that
+   * was not recorded — one you sat out — cannot put the previous hand's recap
+   * under this one's result.
+   */
+  const recap = useMemo(() => {
+    if (!hand?.complete) return null
+    return tracker?.recent.find(
+      (h) => h.mode === mode && h.handNumber === hand.handNumber,
+    ) ?? null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hand?.complete, hand?.handNumber, tracker?.recent, mode])
+
   /** The last hand played in this mode, for the replay one tap away. */
   const [replayLast, setReplayLast] = useState(false)
   const lastHand = useMemo(
@@ -349,6 +370,14 @@ export function TableView({
         </div>
       </div>
 
+      {/*
+        At the table the recap appears only once the hand is over, which is the
+        point: no help while you are deciding, and a straight answer about what
+        you did as soon as it cannot change anything.
+      */}
+      {!coach && recap && (
+        <HandRecap hand={recap} onReplay={recap.replay ? () => setReplayLast(true) : undefined} />
+      )}
       {!coach && <HandLog hand={hand} />}
       </div>
       {coach && (
@@ -368,6 +397,7 @@ export function TableView({
             reads={opponentReads}
             tableNotes={houseNotes}
           />
+          {recap && <HandRecap hand={recap} onReplay={recap.replay ? () => setReplayLast(true) : undefined} />}
           {afterFold && !hideWhatIf && (
             <WhatIfPanel
               result={afterFold}

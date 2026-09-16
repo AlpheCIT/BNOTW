@@ -4,9 +4,16 @@ import { BUY_IN_CHIPS, HIGH_ROLLER_THRESHOLD, dexterPayPerPlayer, dexterTotalBon
 import { decideAction, decideDiscard } from './ai'
 import { Table } from './table'
 import { potTotal } from './hand'
+import type { HandState } from './types'
 
-/** Play one hand start to finish with the bots driving every seat. */
-function playHand(table: Table, rng: Rng) {
+/**
+ * Play one hand start to finish with the bots driving every seat.
+ *
+ * `beforeSettle` runs on the finished hand just before the table settles it,
+ * for the triggers a hand raises on its way past — the only moment they can be
+ * set, now that settling a hand twice is a no-op.
+ */
+function playHand(table: Table, rng: Rng, beforeSettle?: (hand: HandState) => void) {
   const hand = table.startHand()
   if (hand.phase === 'straddles') table.closeStraddles()
 
@@ -34,6 +41,7 @@ function playHand(table: Table, rng: Rng) {
     }
   }
   if (!hand.complete) throw new Error('Hand never completed')
+  beforeSettle?.(hand)
   table.finishHand()
   return hand
 }
@@ -115,9 +123,7 @@ describe('bomb pot triggers', () => {
   it('queues a bomb pot after a monotone flop', () => {
     const table = new Table({ botCount: 3, bombPotTrigger: 'off', straddleMultiplier: 0 }, 1)
     const rng = mulberry32(3)
-    const hand = playHand(table, rng)
-    hand.suitedFlopTriggered = true
-    table.finishHand()
+    playHand(table, rng, (hand) => { hand.suitedFlopTriggered = true })
     expect(table.bombPotDue()).toMatch(/Suited flop/)
     expect(playHand(table, rng).isBombPot).toBe(true)
   })
@@ -203,5 +209,51 @@ describe('BNOTW money rules', () => {
     expect(dexterPayPerPlayer(11)).toBe(1100)
     // Seven other players at $3 a head on the third Dexter.
     expect(dexterTotalBonus(3, 8)).toBe(2100)
+  })
+})
+
+describe('settling a hand', () => {
+  /*
+   * The table settles a hand as soon as the pot is pushed, so the session
+   * survives the player closing the app on the recap, and again on the way to
+   * the next deal. Both calls are real; only the first may do anything.
+   */
+  it('counts a hand once however many times it is settled', () => {
+    const table = new Table({ botCount: 3, bombPotTrigger: 'off', straddleMultiplier: 0 }, 1)
+    const rng = mulberry32(7)
+    playHand(table, rng)
+    expect(table.handsPlayed).toBe(1)
+    table.finishHand()
+    table.finishHand()
+    expect(table.handsPlayed).toBe(1)
+  })
+
+  it('counts each new hand, so the guard is not simply stuck', () => {
+    const table = new Table({ botCount: 3, bombPotTrigger: 'off', straddleMultiplier: 0 }, 1)
+    const rng = mulberry32(8)
+    for (let i = 0; i < 3; i++) playHand(table, rng)
+    expect(table.handsPlayed).toBe(3)
+  })
+
+  it('does not rebuy a busted bot twice over', () => {
+    const table = new Table({ botCount: 3, bombPotTrigger: 'off', straddleMultiplier: 0 }, 1)
+    const rng = mulberry32(9)
+    playHand(table, rng)
+    const buyIns = table.seats.map((s) => s.buyIns)
+    table.finishHand()
+    expect(table.seats.map((s) => s.buyIns)).toEqual(buyIns)
+    assertChipsBalance(table)
+  })
+
+  it('settles a restored session’s next hand, not the one already written down', () => {
+    const table = new Table({ botCount: 3, bombPotTrigger: 'off', straddleMultiplier: 0 }, 1)
+    const rng = mulberry32(10)
+    playHand(table, rng)
+
+    const back = new Table({ botCount: 3, bombPotTrigger: 'off', straddleMultiplier: 0 }, 1)
+    expect(back.restore(table.snapshot())).toBe(true)
+    expect(back.handsPlayed).toBe(1)
+    playHand(back, mulberry32(11))
+    expect(back.handsPlayed).toBe(2)
   })
 })

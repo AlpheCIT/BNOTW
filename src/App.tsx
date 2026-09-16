@@ -36,7 +36,7 @@ import { TableView } from './ui/TableView'
 import { useAppUpdate } from './ui/useAppUpdate'
 import { useCoach } from './ui/useCoach'
 import { useDrill } from './ui/useDrill'
-import { useGame, type Speed } from './ui/useGame'
+import { useGame, type HandEnd, type Speed } from './ui/useGame'
 import { useNarrator } from './ui/useNarrator'
 import { useTracker } from './ui/useTracker'
 
@@ -60,6 +60,8 @@ interface Preferences {
   bombPotGameChoice: TableSettings['bombPotGameChoice']
   straddleMultiplier: number
   speed: Speed
+  /** Whether a finished hand waits for the player before the next deal. */
+  handEnd: HandEnd
   /** Where the coach narrator lives. Empty means explanations are off. */
   coachEndpoint: string
   /** Ask twice before a fold or an all-in you probably did not mean. */
@@ -74,6 +76,7 @@ const DEFAULT_PREFS: Preferences = {
   bombPotGameChoice: 'dealer',
   straddleMultiplier: 1,
   speed: 'normal',
+  handEnd: 'wait',
   coachEndpoint: '',
   confirmBigActions: true,
 }
@@ -260,6 +263,10 @@ export default function App() {
     game.setSpeed(prefs.speed)
     coachGame.setSpeed(prefs.speed)
   }, [prefs.speed, game, coachGame])
+  useEffect(() => {
+    game.setHandEnd(prefs.handEnd)
+    coachGame.setHandEnd(prefs.handEnd)
+  }, [prefs.handEnd, game, coachGame])
 
   /** Sit somebody down. Remembered, unless it is the guest. */
   const choosePlayer = useCallback((next: LocalProfile) => {
@@ -1053,6 +1060,25 @@ function SettingsDialog({
             <option value="normal">Normal</option>
             <option value="slow">Slow — time to read the table</option>
           </select>
+          <p className="sub" style={{ marginTop: 4 }}>
+            How long the bots take and how long the board sits between streets.
+          </p>
+        </div>
+
+        <div className="field">
+          <label htmlFor="handend">When a hand finishes</label>
+          <select
+            id="handend"
+            value={draft.handEnd}
+            onChange={(e) => set('handEnd', e.target.value as HandEnd)}
+          >
+            <option value="wait">Wait for me — I want to read the recap</option>
+            <option value="auto">Deal the next one automatically</option>
+          </select>
+          <p className="sub" style={{ marginTop: 4 }}>
+            The recap of the hand — every decision and what it cost — is only up
+            until the next deal. On "wait" it stays until you tap Next hand.
+          </p>
         </div>
 
         <div className="field">

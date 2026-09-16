@@ -14,6 +14,16 @@ import type { Action } from '../engine/types'
 
 export type Speed = 'fast' | 'normal' | 'slow'
 
+/**
+ * What happens once the pot is pushed: 'wait' leaves the finished hand on
+ * screen until the player taps "Next hand", 'auto' deals again after
+ * `handEnd` milliseconds.
+ *
+ * 'wait' is the default. The recap of a hand — every decision, what it cost —
+ * is the whole point of the coach, and it cannot be read in 3.2 seconds.
+ */
+export type HandEnd = 'wait' | 'auto'
+
 const PACE: Record<Speed, { bot: number; street: number; handEnd: number }> = {
   fast: { bot: 320, street: 480, handEnd: 1700 },
   normal: { bot: 750, street: 950, handEnd: 3200 },
@@ -25,6 +35,8 @@ export interface GameApi {
   version: number
   speed: Speed
   setSpeed: (speed: Speed) => void
+  handEnd: HandEnd
+  setHandEnd: (handEnd: HandEnd) => void
   paused: boolean
   setPaused: (paused: boolean) => void
   /** Set when the human busted and has to decide whether to rebuy. */
@@ -96,6 +108,7 @@ export function useGame(
 
   const version = useSyncExternalStore(table.subscribe, table.getVersion, table.getVersion)
   const [speed, setSpeed] = useState<Speed>('normal')
+  const [handEnd, setHandEnd] = useState<HandEnd>('wait')
   const [paused, setPaused] = useState(false)
   const [needsRebuy, setNeedsRebuy] = useState(false)
   const [tableBroke, setTableBroke] = useState(false)
@@ -120,6 +133,22 @@ export function useGame(
     }
     table.startHand()
   }, [table, remember])
+
+  /*
+   * Write the hand down the moment it is over, not when the next one is dealt.
+   *
+   * The table rests on a finished hand now — that is the whole point of the
+   * change that introduced this — so "the next deal saves it" became "closing
+   * the app on the recap throws it away". Measured, not guessed: a hero who
+   * busted to $0 on hand #1 was back to a full $40 stack after a reload, with
+   * the hand still sitting in the history. `finishHand` settles once per hand,
+   * so the second call on the way to the next deal is a no-op.
+   */
+  useEffect(() => {
+    if (!active || !hand?.complete) return
+    table.finishHand()
+    remember()
+  }, [version, active, hand, table, remember])
 
   /*
    * Deal the first hand, but not until this table is the one on screen.
@@ -181,7 +210,10 @@ export function useGame(
           return
         }
         case 'showdown': {
-          timer = setTimeout(nextHand, pace.handEnd)
+          // Only on 'auto'. On 'wait' the loop idles here and the actionbar's
+          // "Next hand" button is the only way on, so the result and the
+          // recap stay up for as long as the player wants them.
+          if (handEnd === 'auto') timer = setTimeout(nextHand, pace.handEnd)
           return
         }
       }
@@ -189,7 +221,7 @@ export function useGame(
 
     run()
     return () => { if (timer) clearTimeout(timer) }
-  }, [version, paused, active, hand, pace, rng, table, nextHand])
+  }, [version, paused, active, hand, pace, handEnd, rng, table, nextHand])
 
   const act = useCallback((action: Action) => {
     if (table.hand?.actingSeat === table.human.seat) table.act(table.human.seat, action)
@@ -229,7 +261,7 @@ export function useGame(
   )
 
   return {
-    table, version, speed, setSpeed, paused, setPaused, needsRebuy, tableBroke,
+    table, version, speed, setSpeed, handEnd, setHandEnd, paused, setPaused, needsRebuy, tableBroke,
     act, discard, straddle, declineStraddle, showDexter, nextHand, rebuy, restart, winners,
   }
 }

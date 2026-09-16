@@ -83,11 +83,18 @@ export async function playHands(page: Page, hands: number): Promise<number> {
    * selector that only knew about the action bar sat waiting for buttons that
    * were behind an `alertdialog`. Answering it also means the guard itself is
    * exercised on the way past rather than avoided.
+   *
+   * The rebuy button is in here for the same reason. Busting inside three
+   * hands is not rare, and a table asking for $42 is not waiting on anything
+   * it can deal itself — so a driver that did not answer it reported "the
+   * table stopped with nothing to press" and failed a test about something
+   * else entirely.
    */
   const next = page.locator(
     '.confirm-actions .btn.danger, '
     + '.table-screen button:has-text("Deal the cards"), '
     + '.table-screen button:has-text("Next hand"), '
+    + '.table-screen button:has-text("Rebuy"), '
     + '.action-buttons .btn',
   ).first()
 

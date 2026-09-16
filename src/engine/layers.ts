@@ -32,7 +32,7 @@
 
 import type { PlayerTotals } from './playerStats'
 
-export type LayerId = 'price' | 'hand' | 'player' | 'table'
+export type LayerId = 'price' | 'hand' | 'player' | 'frequency' | 'table'
 
 export interface Layer {
   id: LayerId
@@ -73,6 +73,25 @@ export const LAYERS: Layer[] = [
     measurable: true,
   },
   {
+    id: 'frequency',
+    name: 'The frequency',
+    question: 'What does this bet ask of my whole range, not just this hand?',
+    shows:
+      'How often a bluff needs you to fold to break even, the share of your range that has to '
+      + 'continue to take that away, and — when you are the one betting — how many bluffs the '
+      + 'size you have chosen can carry.',
+    /*
+     * Fourth rather than second, which is a change of mind worth recording.
+     *
+     * It reads like an extension of the price — the price is this hand, this
+     * is the whole range — and that was the plan. But the floor is only worth
+     * respecting against somebody who bluffs, and knowing that is the player
+     * layer's job. Offered before it, the honest half of the lesson has
+     * nothing to stand on and it becomes a number to obey.
+     */
+    measurable: false,
+  },
+  {
     id: 'table',
     name: 'The table',
     question: 'What is different about this game?',
@@ -97,6 +116,18 @@ export const LAYER_LEAKS: Record<LayerId, string[]> = {
   price: ['Called too light', 'Folded a good price'],
   hand: ['Loose call', 'Folded a playable hand'],
   player: ['Missed value', 'Too aggressive', 'Off the line', 'Bet sizing'],
+  /*
+   * None of its own, and not an oversight.
+   *
+   * Overfolding is the mistake this layer is about, and it is a property of a
+   * range over many similar spots rather than of any one decision — the record
+   * would have to know which hands you folded that you *could* have continued
+   * with, across spots it judged comparable. It does not, and a leak invented
+   * to fill the gap would gate the next layer on a number that means nothing.
+   * 'Folded a good price' stays with the price layer, where it is earned one
+   * decision at a time.
+   */
+  frequency: [],
   table: [],
 }
 

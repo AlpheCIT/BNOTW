@@ -2275,3 +2275,75 @@ table.grid tr.chosen:hover { background: #4a2724; }
 
 /* Must sit above the picker, which is the thing it lets you escape. */
 .update-bar + .overlay { top: 0; }
+
+/* --- how the hand went ---------------------------------------------------- */
+
+.recap {
+  padding: 10px 12px 11px;
+  border-top: 1px solid #1d3b46;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.recap h3 {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #6fd3e8;
+}
+
+.recap-rows { display: flex; flex-direction: column; gap: 4px; margin: 9px 0 8px; }
+
+.recap-row {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  font-size: 12px;
+  line-height: 1.45;
+  /* The left edge carries the verdict, so the row reads before it is read. */
+  border-left: 2px solid var(--line);
+}
+
+.recap-row.ok { border-left-color: var(--win); }
+.recap-row.off { border-left-color: var(--bomb); }
+
+.recap-street {
+  flex: none;
+  width: 54px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.recap-what { flex: 1 1 auto; min-width: 0; color: var(--ink-dim); }
+.recap-what b { color: var(--ink); font-weight: 700; }
+
+.recap-leak {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-faint);
+  margin-top: 1px;
+}
+
+.recap-cost {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+}
+
+.recap-foot { align-items: baseline; }
+.recap-foot .sub { margin: 0; }
+
+/* At the table it sits in the main column rather than a side panel. */
+.table-main > .recap {
+  border-top: none;
+  border-radius: var(--radius-sm);
+  margin: 0 8px 8px;
+}

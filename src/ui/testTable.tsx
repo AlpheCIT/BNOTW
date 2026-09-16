@@ -85,6 +85,8 @@ export function testGame(seed = 5, until: 'any' | 'bet' = 'any'): TestGame {
     get version() { return version },
     speed: 'fast',
     setSpeed: () => {},
+    handEnd: 'wait' as const,
+    setHandEnd: () => {},
     paused: true,
     setPaused: () => {},
     needsRebuy: false,

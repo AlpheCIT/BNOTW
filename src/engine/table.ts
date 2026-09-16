@@ -98,6 +98,8 @@ export class Table {
   seats: Seat[] = []
   hand: HandState | null = null
   handNumber = 0
+  /** The hand number `finishHand` has already settled. See it for why. */
+  private settledHand = -1
   settings: TableSettings
   /** How many Dexters have been paid tonight; sets the next bonus level. */
   dexterCount = 0
@@ -182,6 +184,7 @@ export class Table {
 
     this.hand = null
     this.handNumber = 0
+    this.settledHand = -1
     this.handsPlayed = 0
     this.dexterCount = 0
     this.dexterLog = []
@@ -422,9 +425,20 @@ export class Table {
   }
 
   /** Book-keeping once a hand is fully settled. */
+  /**
+   * Settle a finished hand: count it, sit the busted out, rebuy the bots.
+   *
+   * Idempotent per hand, because the table now settles as soon as the pot is
+   * pushed *and* again when the next hand is dealt — the player can rest on a
+   * finished hand for as long as they like, so waiting for the next deal to
+   * do the bookkeeping meant closing the app on the recap rolled the hand
+   * back. Without the guard that same pair of calls counted every hand twice.
+   */
   finishHand() {
     const hand = this.hand
     if (!hand) return
+    if (this.settledHand === this.handNumber) return
+    this.settledHand = this.handNumber
     this.handsPlayed++
     if (hand.suitedFlopTriggered) {
       this.pendingBomb = 'Suited flop — all three the same suit'
@@ -510,6 +524,9 @@ export class Table {
     this.seats = seats as Seat[]
     this.hand = null
     this.handNumber = Math.max(0, Math.round(num(snapshot.handNumber, 0)))
+    // Whatever was in the air when this was written is settled and gone; the
+    // next deal takes a fresh number, so nothing can be settled twice.
+    this.settledHand = this.handNumber
     this.handsPlayed = Math.max(0, Math.round(num(snapshot.handsPlayed, 0)))
     this.dexterCount = Math.max(0, Math.round(num(snapshot.dexterCount, 0)))
     this.dexterLog = Array.isArray(snapshot.dexterLog) ? snapshot.dexterLog : []
